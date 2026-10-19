@@ -1,17 +1,16 @@
-# Stage 1: Build (Ganti ke node:22-alpine sesuai kebutuhan package)
+# Stage 1: Build
 FROM node:22-alpine AS builder
 
 WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json ./ 
-# Gunakan npm install agar lebih toleran jika ada perbedaan kecil pada lockfile
 RUN npm install
 
 # Copy seluruh source code
 COPY . .
 
-# Build aplikasi
+# Build aplikasi (hasilnya akan masuk ke .vercel/output)
 RUN npm run build
 
 # Stage 2: Production Run
@@ -23,11 +22,11 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 
-# Copy hasil build dari folder .output Nitro standar
-COPY --from=builder /app/.output ./.output
+# Copy hasil build dari folder .vercel/output
+COPY --from=builder /app/.vercel/output ./.vercel/output
 COPY --from=builder /app/package.json ./
 
 EXPOSE 3000
 
-# Jalankan server SSR Nitro
-CMD ["node", ".output/server/index.mjs"]
+# Jalankan server menggunakan handler/serverless entrypoint dari Vercel output
+CMD ["node", ".vercel/output/functions/__server.func/index.mjs"]
