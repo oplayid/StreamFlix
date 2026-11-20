@@ -3,7 +3,12 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# .npmrc harus ikut disalin sebelum npm ci: berisi legacy-peer-deps=true,
+# tanpa itu npm ci menganggap lockfile tidak sinkron dan build gagal.
+COPY package.json package-lock.json .npmrc ./
+
+# Biner Electron tidak diperlukan untuk build web/Nitro.
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 RUN npm ci
 
 COPY . .
