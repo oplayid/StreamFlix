@@ -19,9 +19,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Logo } from "./Logo";
-import { auth, db } from "@/lib/firebase";
-import { signOut as firebaseSignOut } from "firebase/auth";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { useSession, signOutFn } from "@/lib/session";
+import { getVipStatus } from "@/lib/user-settings";
 import { profileHasPin, verifyProfilePin } from "@/lib/profiles";
 import { suggestTitles } from "@/lib/streamflix-data";
 
@@ -36,7 +35,7 @@ export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [browseMenuOpen, setBrowseMenuOpen] = useState(false);
-  const u = auth.currentUser;
+  const { user: u } = useSession();
   const [selectedProfile, setSelectedProfile] = useState<{
     id: string;
     name: string;
@@ -46,7 +45,7 @@ export function Navbar() {
   } | null>(null);
   const [userData, setUserData] = useState<{ email: string | null; photoURL: string | null }>({
     email: u?.email ?? null,
-    photoURL: u?.photoURL ?? null,
+    photoURL: u?.picture ?? null,
   });
   const [exitKidsOpen, setExitKidsOpen] = useState(false);
   const [exitKidsPin, setExitKidsPin] = useState("");
@@ -138,8 +137,7 @@ export function Navbar() {
 
   useEffect(() => {
     if (!u?.uid) { setIsVip(false); try { localStorage.removeItem("sf:vip"); } catch {} return; }
-    getDoc(doc(db, "vip", u.uid)).then((snap) => {
-      const v = snap.exists();
+    getVipStatus().then((v) => {
       setIsVip(v);
       try { localStorage.setItem("sf:vip", v ? "1" : "0"); } catch {}
     }).catch(() => {});
@@ -181,25 +179,16 @@ export function Navbar() {
   }, []);
 
   useEffect(() => {
-    if (!u) return;
-    const unsub = onSnapshot(doc(db, "profiles", u.uid), (snap) => {
-      const data = snap.data();
-      setUserData({
-        email: u.email ?? null,
-        photoURL: data?.avatar_url || u.photoURL || null,
-      });
-    });
-    return unsub;
+    setUserData({ email: u?.email ?? null, photoURL: u?.picture ?? null });
   }, [u]);
 
   const signOut = async () => {
-    await firebaseSignOut(auth);
+    await signOutFn();
     toast.success("Signed out");
     router.navigate({ to: "/auth", replace: true });
   };
 
   const handleExitKids = async () => {
-    const u = auth.currentUser;
     const profile = selectedProfile;
     setMenuOpen(false);
     if (!u || !profile) return;
@@ -219,7 +208,6 @@ export function Navbar() {
   };
 
   const verifyExitKids = async () => {
-    const u = auth.currentUser;
     const profile = selectedProfile;
     if (!u || !profile) return;
     setExitKidsBusy(true);

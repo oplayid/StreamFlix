@@ -48,7 +48,10 @@ export const Route = createFileRoute("/_authenticated/explore/")({
 });
 
 function ExplorePage() {
-  const { genres, items } = Route.useLoaderData();
+  const { genres, items } = Route.useLoaderData() as {
+    genres: { id: number; name: string }[];
+    items: Movie[];
+  };
   const [page, setPage] = useState(1);
   const navigate = useNavigate();
 

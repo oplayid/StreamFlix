@@ -19,15 +19,9 @@ export const Route = createFileRoute("/")({
     } catch (e) {
       if (e && typeof e === "object" && "isRedirect" in e) throw e;
     }
-    // Fallback: check Firebase (e.g. first visit or cache cleared)
-    const { auth } = await import("@/lib/firebase");
-    const { onAuthStateChanged } = await import("firebase/auth");
-    const user = await new Promise<unknown>((resolve) => {
-      const unsub = onAuthStateChanged(auth, (user) => {
-        unsub();
-        resolve(user);
-      });
-    });
+    // Fallback: check the Pocket ID session (e.g. first visit or cache cleared)
+    const { getSession } = await import("@/lib/session");
+    const user = await getSession();
     if (user) {
       try { localStorage.setItem("sf:auth", "1"); } catch {}
       throw redirect({ to: "/profiles" });

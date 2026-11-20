@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 import { Bell, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { auth } from "@/lib/firebase";
+import { useSession } from "@/lib/session";
 import { getUserNotifications, markReminded } from "@/lib/release-notifications";
 
 type Due = { movieId: string; title: string; poster: string };
 
 export function ReleaseReminderBanner() {
+  const { user } = useSession();
   const [due, setDue] = useState<Due[] | null>(null);
 
   useEffect(() => {
-    const user = auth.currentUser;
     if (!user) return;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    getUserNotifications(user.uid)
+    getUserNotifications(user.id)
       .then((list) => {
         const matches = list.filter((n) => {
           if (n.reminded_at) return false;
@@ -29,10 +29,10 @@ export function ReleaseReminderBanner() {
         setDue(
           matches.map((n) => ({ movieId: n.movie_id, title: n.title, poster: n.poster })),
         );
-        matches.forEach((n) => markReminded(user.uid, n.movie_id).catch(() => {}));
+        matches.forEach((n) => markReminded(user.id, n.movie_id).catch(() => {}));
       })
       .catch(() => {});
-  }, []);
+  }, [user?.id]);
 
   if (!due || due.length === 0) return null;
 

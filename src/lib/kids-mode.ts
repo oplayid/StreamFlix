@@ -38,13 +38,13 @@ export function isGenreBlockedForKids(genreIds: number[]): boolean {
   return genreIds.some((gid) => UNSAFE_GENRE_IDS.has(gid));
 }
 
-export function filterKidsContent(items: Movie[]): Movie[] {
+export function filterKidsContent<T extends { genreIds?: number[] }>(items: T[]): T[] {
   return items.filter((m) => {
     if (isGenreBlockedForKids(m.genreIds ?? [])) return false;
     return true;
   });
 }
 
-export function filterKidsHeroSlides(items: Movie[]): Movie[] {
+export function filterKidsHeroSlides<T extends { genreIds?: number[] }>(items: T[]): T[] {
   return items.filter((m) => !isGenreBlockedForKids(m.genreIds ?? []));
 }

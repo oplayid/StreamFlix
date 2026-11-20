@@ -1,6 +1,7 @@
-import { auth, db } from "@/lib/firebase";
-import { doc, setDoc, collection, serverTimestamp } from "firebase/firestore";
-import { hasConsent } from "@/lib/consent";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { collection, now } from "./mongo";
+import { hasConsent } from "./consent";
 
 const DEVICE_ID_KEY = "streamflix_device_id";
 
@@ -18,7 +19,7 @@ export function parseUserAgent(ua: string): { browser: string; os: string; label
   const u = ua || "";
   let browser = "Browser";
   if (/Edg\//.test(u)) browser = "Edge";
-  else if (/OPR\/|Opera/.test(u)) browser = "Opera";
+  else if (/OPR\//.test(u) || /Opera/.test(u)) browser = "Opera";
   else if (/Chrome\//.test(u) && !/Chromium/.test(u)) browser = "Chrome";
   else if (/Firefox\//.test(u)) browser = "Firefox";
   else if (/Safari\//.test(u) && /Version\//.test(u)) browser = "Safari";
@@ -35,37 +36,48 @@ export function parseUserAgent(ua: string): { browser: string; os: string; label
   if (/iPad|Tablet/.test(u)) device = "Tablet";
   else if (/Mobile|iPhone|Android.*Mobile/.test(u)) device = "Mobile";
 
-  const label = `${browser} on ${os} · ${device}`;
-  return { browser, os, label };
+  return { browser, os, label: `${browser} on ${os} · ${device}` };
 }
 
-export async function recordCurrentDevice(): Promise<void> {
-  if (!hasConsent()) return;
-  if (typeof window === "undefined") return;
-  const user = auth.currentUser;
-  if (!user) return;
-  const ua = navigator.userAgent;
-  const { browser, os, label } = parseUserAgent(ua);
-  const device_id = getDeviceId();
-  const ip_address = await fetchClientIp();
+type DeviceDoc = {
+  _id: string;
+  user_id: string;
+  device_id: string;
+  device_label: string;
+  browser: string;
+  os: string;
+  user_agent: string;
+  ip_address: string | null;
+  last_seen_at: Date;
+  created_at: Date;
+};
 
-  const deviceRef = doc(db, "user_devices", device_id);
-  await setDoc(
-    deviceRef,
-    {
-      user_id: user.uid,
-      device_id,
-      device_label: label,
-      browser,
-      os,
-      user_agent: ua,
-      ip_address,
-      last_seen_at: serverTimestamp(),
-      created_at: serverTimestamp(),
-    },
-    { merge: true },
-  );
-}
+const record = createServerFn({ method: "POST" })
+  .validator(z.object({
+    device_id: z.string(),
+    device_label: z.string(),
+    browser: z.string(),
+    os: z.string(),
+    user_agent: z.string(),
+    ip_address: z.string().nullable(),
+  }))
+  .handler(async ({ data }) => {
+    const { requireUser } = await import("./auth");
+    const userId = (await requireUser()).id;
+    const col = await collection<DeviceDoc>("user_devices");
+    const existing = await col.findOne({ _id: data.device_id, user_id: userId });
+    const timestamp = now();
+    await col.replaceOne(
+      { _id: data.device_id },
+      {
+        ...data,
+        user_id: userId,
+        created_at: existing?.created_at ?? timestamp,
+        last_seen_at: timestamp,
+      },
+      { upsert: true },
+    );
+  });
 
 async function fetchClientIp(): Promise<string | null> {
   try {
@@ -79,4 +91,21 @@ async function fetchClientIp(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+export async function recordCurrentDevice(): Promise<void> {
+  if (!hasConsent()) return;
+  if (typeof window === "undefined") return;
+  const ua = navigator.userAgent;
+  const { browser, os, label } = parseUserAgent(ua);
+  await record({
+    data: {
+      device_id: getDeviceId(),
+      device_label: label,
+      browser,
+      os,
+      user_agent: ua,
+      ip_address: await fetchClientIp(),
+    },
+  });
 }

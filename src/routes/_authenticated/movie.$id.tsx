@@ -54,7 +54,7 @@ import { getWatchHistoryFromFirestore } from "@/lib/history-firestore";
 import { TrailerModal } from "@/components/streamflix/TrailerModal";
 import { AgeRatingBadge } from "@/components/streamflix/AgeRatingBadge";
 import { askStreamflixAI } from "@/lib/api/ai";
-import { auth } from "@/lib/firebase";
+import type { Movie } from "@/lib/types";
 
 function MovieSkeleton() {
   return (
@@ -169,7 +169,13 @@ export const Route = createFileRoute("/_authenticated/movie/$id")({
 });
 
 function MoviePage() {
-  const { movie, similar, genreRows, recommendations, logo } = Route.useLoaderData();
+  const { movie, similar, genreRows, recommendations, logo } = Route.useLoaderData() as {
+    movie: Movie;
+    similar: Movie[];
+    genreRows: { genreId: string; items: Movie[] }[];
+    recommendations: Movie[];
+    logo: { filePath: string; width: number; height: number } | null;
+  };
   const genreLabels: Record<string, string> = {
     "27": "Horror",
     "878": "Sci-Fi",
@@ -216,9 +222,7 @@ function MoviePage() {
     setAiSummaryLoading(true);
     setAiSummaryError("");
     try {
-      const idToken = await auth.currentUser?.getIdToken();
-      if (!idToken) throw new Error("Please sign in again to generate an AI summary.");
-      const result = await askStreamflixAI({ data: { idToken, mode: "summary", titleId: movie.id } });
+      const result = await askStreamflixAI({ data: { mode: "summary", titleId: movie.id } });
       setAiSummary(result.message);
     } catch (error) {
       setAiSummaryError(error instanceof Error ? error.message : "Couldn't generate a summary.");

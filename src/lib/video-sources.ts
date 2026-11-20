@@ -1,5 +1,6 @@
-import { db } from "./firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { collection } from "./mongo";
 
 export type Subtitle = {
   lang: string;
@@ -16,22 +17,28 @@ export type VideoSource = {
   subtitles?: Subtitle[];
 };
 
+type VideoSourceDoc = VideoSource & { _id: string };
+
+const getOne = createServerFn({ method: "GET" })
+  .validator(z.object({ tmdbId: z.string() }))
+  .handler(async ({ data }): Promise<VideoSource | null> => {
+    const col = await collection<VideoSourceDoc>("movie_sources");
+    const doc = await col.findOne({ _id: data.tmdbId });
+    if (!doc) return null;
+    const { _id, ...rest } = doc;
+    return { ...rest, id: _id };
+  });
+
+const listAll = createServerFn({ method: "GET" }).handler(async (): Promise<VideoSource[]> => {
+  const col = await collection<VideoSourceDoc>("movie_sources");
+  const docs = await col.find({}).toArray();
+  return docs.map(({ _id, ...rest }) => ({ ...rest, id: _id }));
+});
+
 export async function getVideoSource(tmdbId: string): Promise<VideoSource | null> {
-  try {
-    const snap = await getDoc(doc(db, "movie_sources", tmdbId));
-    if (!snap.exists()) return null;
-    return { id: snap.id, ...snap.data() } as VideoSource;
-  } catch {
-    return null;
-  }
+  return getOne({ data: { tmdbId } });
 }
 
 export async function listVideoSources(): Promise<VideoSource[]> {
-  try {
-    const { collection, getDocs } = await import("firebase/firestore");
-    const snap = await getDocs(collection(db, "movie_sources"));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as VideoSource);
-  } catch {
-    return [];
-  }
+  return listAll();
 }

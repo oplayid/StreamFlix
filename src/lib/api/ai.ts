@@ -4,7 +4,6 @@ import type { Movie } from "../types";
 import { UNSAFE_GENRE_IDS } from "../kids-mode";
 
 const requestSchema = z.object({
-  idToken: z.string().min(20).max(4096),
   mode: z.enum(["chat", "recommendations", "summary"]),
   prompt: z.string().trim().max(500).optional().default(""),
   titleId: z.string().regex(/^(tv-)?\d+$/).optional(),
@@ -33,20 +32,10 @@ const AI_RATE_WINDOW_MS = 15 * 60 * 1000;
 const AI_RATE_LIMIT = 20;
 const aiRateLimits = new Map<string, { count: number; resetAt: number }>();
 
-async function verifyUser(idToken: string): Promise<string> {
-  const apiKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY as string | undefined;
-  if (!apiKey) throw new Error("AI authentication is not configured on this server.");
-  const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!response.ok) throw new Error("Please sign in again to use the AI assistant.");
-  const data = await response.json();
-  const uid = data.users?.[0]?.localId;
-  if (typeof uid !== "string" || !uid) throw new Error("Please sign in again to use the AI assistant.");
-  return uid;
+async function verifyUser(): Promise<string> {
+  const { requireUser } = await import("../auth");
+  const user = await requireUser();
+  return user.id;
 }
 
 function enforceRateLimit(uid: string) {
@@ -156,7 +145,7 @@ async function askModel(systemPrompt: string, userPrompt: string): Promise<strin
 export const askStreamflixAI = createServerFn({ method: "POST" })
   .validator(requestSchema)
   .handler(async ({ data }): Promise<{ message: string; recommendations: { movie: Movie; reason: string }[] }> => {
-    const uid = await verifyUser(data.idToken);
+    const uid = await verifyUser();
     enforceRateLimit(uid);
     if (data.mode === "summary") {
       if (!data.titleId) throw new Error("Choose a title before asking for a summary.");

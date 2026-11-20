@@ -1,7 +1,7 @@
 import { createStart, createMiddleware, createCsrfMiddleware } from "@tanstack/react-start";
 
 import { renderErrorPage } from "./lib/error-page";
-import { attachFirebaseAuth } from "@/lib/auth-attacher";
+import { attachSessionAuth } from "@/lib/session-attacher";
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
   try {
@@ -23,6 +23,6 @@ const csrfMiddleware = createCsrfMiddleware({
 });
 
 export const startInstance = createStart(() => ({
-  functionMiddleware: [attachFirebaseAuth],
+  functionMiddleware: [attachSessionAuth],
   requestMiddleware: [csrfMiddleware, errorMiddleware],
 }));

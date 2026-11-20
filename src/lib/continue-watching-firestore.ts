@@ -1,18 +1,12 @@
-import {
-  doc,
-  setDoc,
-  getDocs,
-  collection,
-  query,
-  where,
-  deleteDoc,
-  limit as fLimit,
-} from "firebase/firestore";
-import { db, auth } from "./firebase";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { collection, now } from "./mongo";
 import type { Movie } from "./types";
 
 const CW_COLLECTION = "continue_watching";
 const MAX = 12;
+
+type FirestoreContinueDoc = FirestoreContinueItem & { _id: string };
 
 export type FirestoreContinueItem = {
   id: string;
@@ -41,6 +35,102 @@ export type FirestoreContinueItem = {
   episode?: number;
 };
 
+const itemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  poster: z.string(),
+  backdrop: z.string(),
+  rating: z.string(),
+  runtime: z.string(),
+  genres: z.array(z.string()),
+  genreIds: z.array(z.number()),
+  match: z.number(),
+  score: z.number().optional(),
+  description: z.string(),
+  year: z.number(),
+  cast: z.array(z.string()),
+  castPfp: z.array(z.string()),
+  director: z.string(),
+  directorId: z.string(),
+}).passthrough();
+
+async function owner(userId: string, profileId: string) {
+  const profiles = await collection<{ _id: string; userId: string }>("profiles");
+  const found = await profiles.findOne({ _id: profileId, userId });
+  if (!found) throw new Error("Profile not found");
+}
+
+function makeDocId(movieId: string, season?: number, episode?: number) {
+  return season != null && episode != null ? `${movieId}:S${season}E${episode}` : movieId;
+}
+
+const saveProgress = createServerFn({ method: "POST" })
+  .validator(z.object({
+    movie: itemSchema,
+    progress: z.number(),
+    duration: z.number(),
+    season: z.number().optional(),
+    episode: z.number().optional(),
+    profileId: z.string(),
+  }))
+  .handler(async ({ data }) => {
+    const { requireUser } = await import("./auth");
+    const userId = (await requireUser()).id;
+    await owner(userId, data.profileId);
+    const col = await collection<FirestoreContinueDoc>(CW_COLLECTION);
+    const suffix = makeDocId(data.movie.id, data.season, data.episode);
+    const id = `${userId}_${data.profileId}_${suffix.replace(/[^a-zA-Z0-9:]/g, "_")}`;
+    if (data.duration > 0 && data.progress / data.duration >= 0.95) {
+      await col.deleteOne({ _id: id });
+      return;
+    }
+    if (data.progress <= 5) return;
+    const m = data.movie;
+    const doc: FirestoreContinueDoc = {
+      _id: id,
+      id,
+      userId,
+      profileId: data.profileId,
+      movieId: m.id,
+      title: m.title,
+      poster: m.poster,
+      backdrop: m.backdrop,
+      rating: m.rating,
+      runtime: m.runtime,
+      genres: m.genres,
+      genreIds: m.genreIds,
+      match: m.match,
+      score: m.score,
+      description: m.description,
+      year: m.year,
+      cast: m.cast,
+      castPfp: m.castPfp,
+      director: m.director,
+      directorId: m.directorId,
+      progress: data.progress,
+      duration: data.duration,
+      updatedAt: now().getTime(),
+      season: data.season,
+      episode: data.episode,
+    } as FirestoreContinueDoc;
+    await col.replaceOne({ _id: id }, doc, { upsert: true });
+  });
+
+const listProgress = createServerFn({ method: "GET" })
+  .validator(z.object({ profileId: z.string() }))
+  .handler(async ({ data }): Promise<FirestoreContinueItem[]> => {
+    const { requireUser } = await import("./auth");
+    const userId = (await requireUser()).id;
+    await owner(userId, data.profileId);
+    const col = await collection<FirestoreContinueDoc>(CW_COLLECTION);
+    const docs = await col
+      .find({ userId, profileId: data.profileId })
+      .sort({ updatedAt: -1 })
+      .limit(MAX)
+      .toArray();
+    return docs.map(({ _id, ...rest }) => ({ ...rest, id: String(_id) }) as FirestoreContinueItem);
+  });
+
 function getSelectedProfileId(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -52,10 +142,6 @@ function getSelectedProfileId(): string | null {
   }
 }
 
-function makeDocId(movieId: string, season?: number, episode?: number) {
-  return season != null && episode != null ? `${movieId}:S${season}E${episode}` : movieId;
-}
-
 export async function saveProgressToFirestore(
   movie: Movie,
   progress: number,
@@ -63,62 +149,16 @@ export async function saveProgressToFirestore(
   season?: number,
   episode?: number,
 ) {
-  const user = auth.currentUser;
-  if (!user) return;
   const profileId = getSelectedProfileId();
   if (!profileId) return;
   if (!duration || !isFinite(duration)) return;
-  const ratio = progress / duration;
-  const docId = `${user.uid}_${profileId}_${makeDocId(movie.id, season, episode)}`;
-  if (ratio >= 0.95) {
-    await deleteDoc(doc(db, CW_COLLECTION, docId)).catch(() => {});
-    return;
-  }
-  if (progress <= 5) return;
-  const data: FirestoreContinueItem = {
-    id: docId,
-    userId: user.uid,
-    profileId,
-    movieId: movie.id,
-    title: movie.title,
-    poster: movie.poster,
-    backdrop: movie.backdrop,
-    rating: movie.rating,
-    runtime: movie.runtime,
-    genres: movie.genres,
-    genreIds: movie.genreIds,
-    match: movie.match,
-    score: movie.score,
-    description: movie.description,
-    year: movie.year,
-    cast: movie.cast,
-    castPfp: movie.castPfp,
-    director: movie.director,
-    directorId: movie.directorId,
-    progress,
-    duration,
-    updatedAt: Date.now(),
-    season,
-    episode,
-  };
-  await setDoc(doc(db, CW_COLLECTION, docId), data);
+  await saveProgress({ data: { movie, progress, duration, season, episode, profileId } });
 }
 
 export async function getContinueWatchingFromFirestore(): Promise<FirestoreContinueItem[]> {
-  const user = auth.currentUser;
-  if (!user) return [];
   const profileId = getSelectedProfileId();
   if (!profileId) return [];
-  const q = query(
-    collection(db, CW_COLLECTION),
-    where("userId", "==", user.uid),
-    where("profileId", "==", profileId),
-    fLimit(MAX),
-  );
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }) as FirestoreContinueItem)
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+  return listProgress({ data: { profileId } });
 }
 
 export function toMovie(item: FirestoreContinueItem): Movie {

@@ -1,5 +1,6 @@
-import { db } from "./firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { collection } from "./mongo";
 
 export const GENRE_OPTIONS = [
   { id: 28, name: "Action" },
@@ -22,13 +23,29 @@ export const GENRE_OPTIONS = [
   { id: 37, name: "Western" },
 ];
 
-export async function getFavoriteGenres(userId: string): Promise<number[]> {
-  const snap = await getDoc(doc(db, "users", userId));
-  if (!snap.exists()) return [];
-  const genres = snap.data().favoriteGenres;
-  return Array.isArray(genres) ? (genres as number[]) : [];
+type UserDoc = { _id: string; favoriteGenres?: number[] };
+
+const readGenres = createServerFn({ method: "GET" }).handler(async (): Promise<number[]> => {
+  const { requireUser } = await import("./auth");
+  const userId = (await requireUser()).id;
+  const users = await collection<UserDoc>("users");
+  const user = await users.findOne({ _id: userId });
+  return Array.isArray(user?.favoriteGenres) ? user!.favoriteGenres! : [];
+});
+
+const writeGenres = createServerFn({ method: "POST" })
+  .validator(z.object({ genreIds: z.array(z.number()) }))
+  .handler(async ({ data }) => {
+    const { requireUser } = await import("./auth");
+    const userId = (await requireUser()).id;
+    const users = await collection<UserDoc>("users");
+    await users.updateOne({ _id: userId }, { $set: { favoriteGenres: data.genreIds } }, { upsert: true });
+  });
+
+export async function getFavoriteGenres(_userId?: string): Promise<number[]> {
+  return readGenres();
 }
 
-export async function setFavoriteGenres(userId: string, genreIds: number[]): Promise<void> {
-  await setDoc(doc(db, "users", userId), { favoriteGenres: genreIds }, { merge: true });
+export async function setFavoriteGenres(_userId: string, genreIds: number[]): Promise<void> {
+  await writeGenres({ data: { genreIds } });
 }

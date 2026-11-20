@@ -37,6 +37,11 @@ import { Route as AuthenticatedExploreGenreIdRouteImport } from './routes/_authe
 import { Route as AuthenticatedMovieIdRouteImport } from './routes/_authenticated/movie.$id'
 import { Route as AuthenticatedPersonIdRouteImport } from './routes/_authenticated/person.$id'
 import { Route as AuthenticatedWatchIdRouteImport } from './routes/_authenticated/watch.$id'
+import { Route as ApiAuthCallbackRouteImport } from './routes/api/auth/callback'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
+import { Route as ApiAuthMeRouteImport } from './routes/api/auth/me'
+import { Route as ApiSubtitlesIdRouteImport } from './routes/api/subtitles.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -181,6 +186,31 @@ const AuthenticatedWatchIdRoute = AuthenticatedWatchIdRouteImport.update({
   path: '/watch/$id',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiAuthCallbackRoute = ApiAuthCallbackRouteImport.update({
+  id: '/api/auth/callback',
+  path: '/api/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
+  id: '/api/auth/logout',
+  path: '/api/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthMeRoute = ApiAuthMeRouteImport.update({
+  id: '/api/auth/me',
+  path: '/api/auth/me',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSubtitlesIdRoute = ApiSubtitlesIdRouteImport.update({
+  id: '/api/subtitles/$id',
+  path: '/api/subtitles/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -209,6 +239,11 @@ export interface FileRoutesByFullPath {
   '/movie/$id': typeof AuthenticatedMovieIdRoute
   '/person/$id': typeof AuthenticatedPersonIdRoute
   '/watch/$id': typeof AuthenticatedWatchIdRoute
+  '/api/auth/callback': typeof ApiAuthCallbackRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/subtitles/$id': typeof ApiSubtitlesIdRoute
   '/explore/': typeof AuthenticatedExploreIndexRoute
 }
 export interface FileRoutesByTo {
@@ -237,6 +272,11 @@ export interface FileRoutesByTo {
   '/movie/$id': typeof AuthenticatedMovieIdRoute
   '/person/$id': typeof AuthenticatedPersonIdRoute
   '/watch/$id': typeof AuthenticatedWatchIdRoute
+  '/api/auth/callback': typeof ApiAuthCallbackRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/subtitles/$id': typeof ApiSubtitlesIdRoute
   '/explore': typeof AuthenticatedExploreIndexRoute
 }
 export interface FileRoutesById {
@@ -268,6 +308,11 @@ export interface FileRoutesById {
   '/_authenticated/movie/$id': typeof AuthenticatedMovieIdRoute
   '/_authenticated/person/$id': typeof AuthenticatedPersonIdRoute
   '/_authenticated/watch/$id': typeof AuthenticatedWatchIdRoute
+  '/api/auth/callback': typeof ApiAuthCallbackRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/me': typeof ApiAuthMeRoute
+  '/api/subtitles/$id': typeof ApiSubtitlesIdRoute
   '/_authenticated/explore/': typeof AuthenticatedExploreIndexRoute
 }
 export interface FileRouteTypes {
@@ -299,6 +344,11 @@ export interface FileRouteTypes {
     | '/movie/$id'
     | '/person/$id'
     | '/watch/$id'
+    | '/api/auth/callback'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/subtitles/$id'
     | '/explore/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -327,6 +377,11 @@ export interface FileRouteTypes {
     | '/movie/$id'
     | '/person/$id'
     | '/watch/$id'
+    | '/api/auth/callback'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/subtitles/$id'
     | '/explore'
   id:
     | '__root__'
@@ -357,6 +412,11 @@ export interface FileRouteTypes {
     | '/_authenticated/movie/$id'
     | '/_authenticated/person/$id'
     | '/_authenticated/watch/$id'
+    | '/api/auth/callback'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/me'
+    | '/api/subtitles/$id'
     | '/_authenticated/explore/'
   fileRoutesById: FileRoutesById
 }
@@ -373,6 +433,11 @@ export interface RootRouteChildren {
   ApiReleaseNotificationsCronRoute: typeof ApiReleaseNotificationsCronRoute
   ApiSendNotificationRoute: typeof ApiSendNotificationRoute
   ApiVerifyRecaptchaRoute: typeof ApiVerifyRecaptchaRoute
+  ApiAuthCallbackRoute: typeof ApiAuthCallbackRoute
+  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
+  ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  ApiAuthMeRoute: typeof ApiAuthMeRoute
+  ApiSubtitlesIdRoute: typeof ApiSubtitlesIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -573,6 +638,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWatchIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/auth/callback': {
+      id: '/api/auth/callback'
+      path: '/api/auth/callback'
+      fullPath: '/api/auth/callback'
+      preLoaderRoute: typeof ApiAuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/logout': {
+      id: '/api/auth/logout'
+      path: '/api/auth/logout'
+      fullPath: '/api/auth/logout'
+      preLoaderRoute: typeof ApiAuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/me': {
+      id: '/api/auth/me'
+      path: '/api/auth/me'
+      fullPath: '/api/auth/me'
+      preLoaderRoute: typeof ApiAuthMeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/subtitles/$id': {
+      id: '/api/subtitles/$id'
+      path: '/api/subtitles/$id'
+      fullPath: '/api/subtitles/$id'
+      preLoaderRoute: typeof ApiSubtitlesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -647,6 +747,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiReleaseNotificationsCronRoute: ApiReleaseNotificationsCronRoute,
   ApiSendNotificationRoute: ApiSendNotificationRoute,
   ApiVerifyRecaptchaRoute: ApiVerifyRecaptchaRoute,
+  ApiAuthCallbackRoute: ApiAuthCallbackRoute,
+  ApiAuthLoginRoute: ApiAuthLoginRoute,
+  ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  ApiAuthMeRoute: ApiAuthMeRoute,
+  ApiSubtitlesIdRoute: ApiSubtitlesIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

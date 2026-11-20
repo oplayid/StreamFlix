@@ -1,0 +1,16 @@
+node_modules
+.git
+.github
+.vercel
+.output
+dist
+release
+coverage
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+electron
+android
+ios

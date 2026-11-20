@@ -12,7 +12,7 @@ import { RowSkeleton } from "@/components/streamflix/RowSkeleton";
 import { loadBrowseData, searchByGenre, type BrowseKind } from "@/lib/streamflix-data";
 import { fetchPopular } from "@/lib/api/tmdb";
 import type { Movie } from "@/lib/types";
-import { auth } from "@/lib/firebase";
+import { useSession } from "@/lib/session";
 import { getFavoriteGenres, GENRE_OPTIONS } from "@/lib/favorite-genres";
 import {
   getContinueWatching,
@@ -81,6 +81,7 @@ export const Route = createFileRoute("/_authenticated/browse")({
 });
 
 function BrowsePage() {
+  const { user } = useSession();
   const data = Route.useLoaderData();
   const heroSlides: Movie[] = data.heroSlides;
   const top10Today: Movie[] = data.top10Today;
@@ -311,7 +312,7 @@ function BrowsePage() {
 
   useEffect(() => {
     if (kind !== "home" || typeof window === "undefined") return;
-    const u = auth.currentUser;
+    const u = user;
     if (!u) return;
     let cancelled = false;
     const loadPicked = async () => {
@@ -352,7 +353,7 @@ function BrowsePage() {
     return () => {
       cancelled = true;
     };
-  }, [kind]);
+  }, [kind, user?.id]);
 
   useEffect(() => {
     const el = top10Ref;

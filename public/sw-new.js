@@ -116,3 +116,39 @@ async function networkFirst(request) {
     return cached || caches.match(OFFLINE_URL);
   }
 }
+
+// Web Push (self-hosted). Payload: { title, body, url, movie_id }
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "StreamFlix";
+  const options = {
+    body: data.body || "Something new to watch.",
+    icon: "/icon.png",
+    badge: "/icon.png",
+    tag: data.movie_id ? `release-${data.movie_id}` : "streamflix",
+    data: { url: data.url || "/", movie_id: data.movie_id || "" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = event.notification.data && event.notification.data.url;
+  const destination = target && target.startsWith("/") ? new URL(target, self.location.origin).href : target || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (new URL(client.url).origin === new URL(destination).origin) {
+          client.navigate(destination);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(destination);
+    }),
+  );
+});

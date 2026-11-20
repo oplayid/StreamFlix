@@ -1,16 +1,7 @@
-import { registerPlugin } from "@capacitor/core";
-import { GithubAuthProvider, signInWithCredential } from "firebase/auth";
-import { auth } from "@/lib/firebase";
-
-const FirebaseAuthentication = registerPlugin("FirebaseAuthentication");
-
-export async function signInWithGitHubNative() {
-  const result = await FirebaseAuthentication.signInWithGithub();
-  const token = result.credential?.accessToken ?? result.credential?.idToken;
-  if (token) {
-    const credential = GithubAuthProvider.credential(token);
-    await signInWithCredential(auth, credential);
-    return true;
-  }
+/**
+ * Native GitHub sign-in was tied to the old Firebase Auth setup and is not
+ * available in the self-hosted Pocket ID build. Use the Pocket ID login flow.
+ */
+export async function signInWithGitHubNative(): Promise<boolean> {
   return false;
 }

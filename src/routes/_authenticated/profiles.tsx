@@ -6,14 +6,13 @@ import {
   X,
   Lock,
   Upload,
-  Github,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Logo } from "@/components/streamflix/Logo";
 import { AvatarCropModal } from "@/components/streamflix/AvatarCropModal";
 import { Skeleton } from "@/components/ui/skeleton";
-import { auth } from "@/lib/firebase";
+import { useSession, type AuthUser } from "@/lib/session";
 import { getWatchHistory } from "@/lib/continue-watching";
 import {
   createProfile,
@@ -62,12 +61,12 @@ const COLORS = [
   "from-lime-400 to-green-600",
 ];
 
-function defaultName() {
-  const u = auth.currentUser;
-  return (u?.displayName?.trim() || u?.email?.split("@")[0] || "Profile") as string;
+function defaultName(user: AuthUser | null) {
+  return (user?.name?.trim() || user?.email?.split("@")[0] || "Profile") as string;
 }
 
 function ProfilesPage() {
+  const { user } = useSession();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
@@ -80,25 +79,15 @@ function ProfilesPage() {
   const [onboardBusy, setOnboardBusy] = useState(false);
   const [bgSlides, setBgSlides] = useState<string[]>([]);
   const [bgIdx, setBgIdx] = useState(0);
-  const [showGithubPrompt, setShowGithubPrompt] = useState(false);
 
   useEffect(() => {
-    try {
-      if (localStorage.getItem("sf:github_prompt") === "1") {
-        setShowGithubPrompt(true);
-        localStorage.removeItem("sf:github_prompt");
-      }
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    const u = auth.currentUser;
+    const u = user;
     if (!u) return;
     let cancelled = false;
     (async () => {
       try {
         if (localStorage.getItem("sf:onboarded")) return;
-        const genres = await getFavoriteGenres(u.uid);
+        const genres = await getFavoriteGenres(u.id);
         if (!cancelled && genres.length === 0) setOnboardOpen(true);
       } catch {
         /* skip onboarding if lookup fails */
@@ -107,7 +96,7 @@ function ProfilesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     const history = getWatchHistory().slice(0, 8);
@@ -126,10 +115,10 @@ function ProfilesPage() {
   }, [bgSlides.length]);
 
   const load = async () => {
-    const u = auth.currentUser;
+    const u = user;
     if (!u) return;
     try {
-      const list = await ensureUserHasProfile(u.uid, defaultName());
+      const list = await ensureUserHasProfile(u.id, defaultName(u));
       setProfiles(list);
     } catch (e: any) {
       toast.error(e?.message ?? "Couldn't load profiles");
@@ -139,13 +128,11 @@ function ProfilesPage() {
 
   useEffect(() => {
     load();
-    // load reads auth.currentUser (stable); mount-only is intentional
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id]);
 
   const choose = async (p: Profile) => {
     if (!editing) {
-      const u = auth.currentUser;
+      const u = user;
       if (u && p.hasPin) {
         setPinTarget(p);
         setPinValue("");
@@ -173,11 +160,11 @@ function ProfilesPage() {
   };
 
   const verifyPinAndSelect = async () => {
-    const u = auth.currentUser;
+    const u = user;
     if (!u || !pinTarget) return;
     setPinBusy(true);
     try {
-      const ok = await verifyProfilePin(u.uid, pinTarget.id, pinValue);
+      const ok = await verifyProfilePin(u.id, pinTarget.id, pinValue);
       if (ok) {
         selectProfile(pinTarget);
         setPinTarget(null);
@@ -199,7 +186,7 @@ function ProfilesPage() {
   };
 
   const saveOnboard = async () => {
-    const u = auth.currentUser;
+    const u = user;
     if (!u) return;
     if (pickedGenres.length === 0) {
       toast.error("Pick at least one genre");
@@ -207,7 +194,7 @@ function ProfilesPage() {
     }
     setOnboardBusy(true);
     try {
-      await setFavoriteGenres(u.uid, pickedGenres);
+      await setFavoriteGenres(u.id, pickedGenres);
       try {
         localStorage.setItem("sf:onboarded", "1");
       } catch {}
@@ -446,6 +433,7 @@ function ProfileEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { user } = useSession();
   const isNew = target === "new";
   const existing = isNew ? null : (target as Profile);
   const [name, setName] = useState(existing?.name ?? "");
@@ -470,7 +458,7 @@ function ProfileEditor({
   };
 
   const save = async () => {
-    const u = auth.currentUser;
+    const u = user;
     if (!u) return;
     if (!name.trim()) {
       toast.error("Name is required");
@@ -479,30 +467,30 @@ function ProfileEditor({
     setBusy(true);
     try {
       if (isNew) {
-        await createProfile(u.uid, {
+        await createProfile(u.id, {
           name: name.trim(),
           kids,
           avatarUrl: avatarUrl.trim() || undefined,
         });
-        const list = await getUserProfiles(u.uid);
+        const list = await getUserProfiles(u.id);
         const created = list.find((p) => p.name === name.trim());
         if (created) {
-          await updateProfile(u.uid, created.id, { color, avatarUrl: avatarUrl.trim() || "" });
+          await updateProfile(u.id, created.id, { color, avatarUrl: avatarUrl.trim() || "" });
           if (pin.trim()) {
-            await setProfilePin(u.uid, created.id, pin.trim());
+            await setProfilePin(u.id, created.id, pin.trim());
             setHasPin(true);
           }
         }
         toast.success("Profile added");
       } else if (existing) {
-        await updateProfile(u.uid, existing.id, {
+        await updateProfile(u.id, existing.id, {
           name: name.trim(),
           kids,
           color,
           avatarUrl: avatarUrl.trim() || "",
         });
         if (pin.trim()) {
-          await setProfilePin(u.uid, existing.id, pin.trim());
+          await setProfilePin(u.id, existing.id, pin.trim());
           setHasPin(true);
         }
         toast.success("Profile updated");
@@ -517,17 +505,17 @@ function ProfileEditor({
 
   const removePin = async () => {
     if (!existing) return;
-    const u = auth.currentUser;
+    const u = user;
     if (!u) return;
     setRemovePinBusy(true);
     try {
-      const ok = await verifyProfilePin(u.uid, existing.id, removePinValue);
+      const ok = await verifyProfilePin(u.id, existing.id, removePinValue);
       if (!ok) {
         toast.error("Incorrect PIN");
         setRemovePinBusy(false);
         return;
       }
-      await removeProfilePin(u.uid, existing.id);
+      await removeProfilePin(u.id, existing.id);
       setHasPin(false);
       setPin("");
       setRemovePinOpen(false);
@@ -541,7 +529,7 @@ function ProfileEditor({
 
   const remove = async () => {
     if (!existing) return;
-    const u = auth.currentUser;
+    const u = user;
     if (!u) return;
     if (existingCount <= 1) {
       toast.error("You must keep at least one profile");
@@ -550,7 +538,7 @@ function ProfileEditor({
     if (!confirm(`Delete profile "${existing.name}"?`)) return;
     setBusy(true);
     try {
-      await deleteProfile(u.uid, existing.id);
+      await deleteProfile(u.id, existing.id);
       toast.success("Profile deleted");
       onSaved();
     } catch (e: any) {

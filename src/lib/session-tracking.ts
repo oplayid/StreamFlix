@@ -1,17 +1,19 @@
-import { auth, db } from "@/lib/firebase";
-import {
-  collection,
-  addDoc,
-  deleteDoc,
-  doc,
-  getDocs,
-  where,
-  query,
-  serverTimestamp,
-  Timestamp,
-} from "firebase/firestore";
-import { getDeviceId } from "@/lib/device-tracking";
-import { hasConsent } from "@/lib/consent";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { randomUUID } from "node:crypto";
+import { collection, now } from "./mongo";
+import { getDeviceId } from "./device-tracking";
+import { hasConsent } from "./consent";
+
+type SessionDoc = {
+  _id: string;
+  userId: string;
+  profileId: string;
+  movieId: string;
+  deviceId: string;
+  startedAt: Date;
+  lastActiveAt: Date;
+};
 
 function getSelectedProfileId(): string | null {
   if (typeof window === "undefined") return null;
@@ -24,37 +26,61 @@ function getSelectedProfileId(): string | null {
   }
 }
 
+const start = createServerFn({ method: "POST" })
+  .validator(z.object({ movieId: z.string(), profileId: z.string(), deviceId: z.string() }))
+  .handler(async ({ data }): Promise<string> => {
+    const { requireUser } = await import("./auth");
+    const userId = (await requireUser()).id;
+    const col = await collection<SessionDoc>("playback_sessions");
+    const id = randomUUID();
+    await col.insertOne({
+      _id: id,
+      userId,
+      profileId: data.profileId,
+      movieId: data.movieId,
+      deviceId: data.deviceId,
+      startedAt: now(),
+      lastActiveAt: now(),
+    });
+    return id;
+  });
+
+const end = createServerFn({ method: "POST" })
+  .validator(z.object({ sessionId: z.string() }))
+  .handler(async ({ data }) => {
+    const { requireUser } = await import("./auth");
+    const userId = (await requireUser()).id;
+    const col = await collection<SessionDoc>("playback_sessions");
+    await col.deleteOne({ _id: data.sessionId, userId });
+  });
+
+const countActive = createServerFn({ method: "GET" }).handler(async (): Promise<number> => {
+  const { requireUser } = await import("./auth");
+  const userId = (await requireUser()).id;
+  const col = await collection<SessionDoc>("playback_sessions");
+  return col.countDocuments({ userId });
+});
+
 export async function startSession(movieId: string): Promise<string | null> {
   if (!hasConsent()) return null;
-  const user = auth.currentUser;
-  if (!user) return null;
   const profileId = getSelectedProfileId();
   if (!profileId) return null;
-  const deviceId = getDeviceId();
-  const docRef = await addDoc(collection(db, "sessions"), {
-    userId: user.uid,
-    profileId,
-    movieId,
-    deviceId,
-    startedAt: serverTimestamp(),
-    lastActiveAt: serverTimestamp(),
-  });
-  return docRef.id;
+  return start({ data: { movieId, profileId, deviceId: getDeviceId() } });
 }
 
 export async function endSession(sessionId: string): Promise<void> {
-  await deleteDoc(doc(db, "sessions", sessionId));
+  await end({ data: { sessionId } });
 }
 
-export async function getActiveSessionCount(userId: string): Promise<number> {
-  const q = query(collection(db, "sessions"), where("userId", "==", userId));
-  const snap = await getDocs(q);
-  return snap.size;
+export async function getActiveSessionCount(_userId?: string): Promise<number> {
+  return countActive();
 }
 
 export async function cleanupSessions(): Promise<void> {
-  const cutoff = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
-  const q = query(collection(db, "sessions"), where("lastActiveAt", "<=", cutoff));
-  const snap = await getDocs(q);
-  await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+  // TTL index on lastActiveAt handles cleanup; this is kept for compatibility.
+  const { getDb } = await import("./mongo");
+  const db = await getDb();
+  await db.collection("playback_sessions").deleteMany({
+    lastActiveAt: { $lt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+  });
 }

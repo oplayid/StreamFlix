@@ -6,7 +6,6 @@ import { Navbar } from "@/components/streamflix/Navbar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { askStreamflixAI } from "@/lib/api/ai";
 import { getWatchHistory } from "@/lib/continue-watching";
-import { auth } from "@/lib/firebase";
 import { isKidsProfile } from "@/lib/kids-mode";
 import type { Movie } from "@/lib/types";
 
@@ -61,11 +60,8 @@ function AssistantPage() {
     setError("");
     setBusy(true);
     try {
-      const idToken = await auth.currentUser?.getIdToken();
-      if (!idToken) throw new Error("Please sign in again to use the AI assistant.");
       const result = await askStreamflixAI({
         data: {
-          idToken,
           mode,
           prompt: request || "Recommend a few titles for me.",
           includeHistory: true,
@@ -146,8 +142,8 @@ function AssistantPage() {
                 <>
                   {message.role === "assistant" && message.recommendations && message.recommendations.length > 0 ? (
                     <>
-                      <div key={`${index}-${message.role}-text`} className={message.role === "user" ? 'ml-auto max-w-[90%] sm:max-w-[80%]' : 'mr-auto max-w-[90%] sm:max-w-[80%]'}>
-                        <div className={message.role === "user" ? "rounded-2xl bg-primary px-4 py-3 text-primary-foreground" : "rounded-xl bg-muted/50 p-4"}>
+                      <div key={`${index}-${message.role}-text`} className="mr-auto max-w-[90%] sm:max-w-[80%]">
+                        <div className="rounded-xl bg-muted/50 p-4">
                           <div className="space-y-2">
                             <div className="text-sm leading-6">
                               {message.content}
@@ -166,8 +162,8 @@ function AssistantPage() {
                       </div>
                     </>
                   ) : (
-                    <div key={`${index}-${message.role}`} className={message.role === "user" ? 'ml-auto max-w-[90%] sm:max-w-[80%]' : 'mr-auto max-w-[90%] sm:max-w-[80%]'}>
-                      <div className={message.role === "user" ? "rounded-2xl bg-primary px-4 py-3 text-primary-foreground" : "rounded-xl bg-muted/50 p-4"}>
+                    <div key={`${index}-${message.role}`} className="mr-auto max-w-[90%] sm:max-w-[80%]">
+                      <div className="rounded-xl bg-muted/50 p-4">
                         <div className="space-y-2">
                           <div className="text-sm leading-6">
                             {message.content}

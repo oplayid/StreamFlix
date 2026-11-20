@@ -7,12 +7,21 @@ import { recordProgress } from "@/lib/continue-watching";
 import { saveProgressToFirestore } from "@/lib/continue-watching-firestore";
 import { probeEmbedUrl, fetchTvSeason } from "@/lib/api/tmdb";
 import { isPipSupported, enterPictureInPicture, isMobileApp } from "@/lib/mobile";
-import { auth } from "@/lib/firebase";
 import { startSession, endSession } from "@/lib/session-tracking";
 import { toast } from "sonner";
 import { SeasonEpisodePicker } from "@/components/streamflix/SeasonEpisodePicker";
 import { seoMetaFor } from "@/lib/seo";
 import { isKidsProfile, isRatingBlockedForKids, isGenreBlockedForKids } from "@/lib/kids-mode";
+import {
+  addSubtitleFromUrl,
+  cueAtTime,
+  deleteSubtitle,
+  listSubtitles,
+  parseVttCues,
+  uploadSubtitle,
+  type SubtitleCue,
+  type SubtitleTrack,
+} from "@/lib/subtitles";
 
 interface NetworkInformation {
   effectiveType: "slow-2g" | "2g" | "3g" | "4g";
@@ -268,7 +277,12 @@ function PlayerPage() {
   const lastTimeUpdateRef = useRef(0);
 
   const [ended, setEnded] = useState(false);
-  const [subtitles, setSubtitles] = useState<{ lang: string; label: string; url: string }[]>([]);
+  const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
+  const [subtitleBusy, setSubtitleBusy] = useState(false);
+  const [newSubLang, setNewSubLang] = useState("en");
+  const [newSubLabel, setNewSubLabel] = useState("English");
+  const [newSubUrl, setNewSubUrl] = useState("");
+  const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
   const [buffering, setBuffering] = useState(false);
   const [showRotateHint, setShowRotateHint] = useState(false);
   const [isPortrait, setIsPortrait] = useState(
@@ -278,6 +292,13 @@ function PlayerPage() {
   );
   const [activeSubtitle, setActiveSubtitle] = useState<string | null>(null);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const [subtitleOffset, setSubtitleOffset] = useState(0);
+  // Third-party embeds cannot report playback time, so the subtitle overlay uses
+  // a local clock that the viewer starts/pauses alongside the embed player.
+  const [manualClockRunning, setManualClockRunning] = useState(false);
+  const [manualClockTime, setManualClockTime] = useState(0);
+  const [activeCue, setActiveCue] = useState<SubtitleCue | null>(null);
+  const subtitleCuesRef = useRef<SubtitleCue[]>([]);
   const [connectionQuality, setConnectionQuality] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
@@ -535,14 +556,24 @@ function PlayerPage() {
     }
   }, []);
 
+  const persistSubtitleChoice = (lang: string | null) => {
+    if (!movie?.id) return;
+    try {
+      if (lang) localStorage.setItem(`sf:subtitle:${movie.id}`, lang);
+      else localStorage.removeItem(`sf:subtitle:${movie.id}`);
+    } catch {}
+  };
+
   const handleSubtitleChange = (lang: string | null) => {
     setActiveSubtitle(lang);
+    persistSubtitleChoice(lang);
     if (lang === null) {
       setCaptionsEnabled(false);
       updateSubtitleTracks(null, false);
       return;
     }
-    updateSubtitleTracks(lang, captionsEnabled);
+    if (!captionsEnabled) setCaptionsEnabled(true);
+    updateSubtitleTracks(lang, true);
   };
 
   useEffect(() => {
@@ -556,6 +587,140 @@ function PlayerPage() {
       return next;
     });
   }, [activeSubtitle, updateSubtitleTracks]);
+
+  // --- Custom subtitles (own uploads and third-party URLs) ---
+  useEffect(() => {
+    if (!movie?.id) return;
+    let cancelled = false;
+    listSubtitles(movie.id)
+      .then((tracks) => {
+        if (cancelled) return;
+        setSubtitles(tracks);
+        let saved: string | null = null;
+        try { saved = localStorage.getItem(`sf:subtitle:${movie.id}`); } catch {}
+        const initial = tracks.find((t) => t.lang === saved)?.lang ?? tracks[0]?.lang ?? null;
+        setActiveSubtitle(initial);
+        setCaptionsEnabled(initial !== null);
+        let offset = 0;
+        try { offset = Number(localStorage.getItem(`sf:subtitleOffset:${movie.id}`) ?? 0); } catch {}
+        setSubtitleOffset(Number.isFinite(offset) ? offset : 0);
+        setManualClockTime(0);
+        setManualClockRunning(false);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [movie?.id]);
+
+  useEffect(() => {
+    const selected = subtitles.find((track) => track.lang === activeSubtitle);
+    subtitleCuesRef.current = selected ? parseVttCues(selected.content) : [];
+  }, [subtitles, activeSubtitle]);
+
+  const subtitleClockTime = embedSyncSupported ? currentTime : manualClockTime;
+
+  useEffect(() => {
+    if (!manualClockRunning) return;
+    let last = Date.now();
+    const timer = window.setInterval(() => {
+      const tick = Date.now();
+      setManualClockTime((time) => time + (tick - last) / 1000);
+      last = tick;
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [manualClockRunning]);
+
+  useEffect(() => {
+    setActiveCue(
+      captionsEnabled
+        ? cueAtTime(subtitleCuesRef.current, subtitleClockTime + subtitleOffset)
+        : null,
+    );
+  }, [subtitleClockTime, subtitleOffset, captionsEnabled, subtitles, activeSubtitle]);
+
+  const changeOffset = (delta: number) => {
+    setSubtitleOffset((prev) => {
+      const next = Math.max(-600, Math.min(600, prev + delta));
+      try { localStorage.setItem(`sf:subtitleOffset:${movie?.id ?? ""}`, String(next)); } catch {}
+      return next;
+    });
+  };
+
+  const refreshSubtitles = async (preferredLang: string) => {
+    if (!movie?.id) return;
+    const tracks = await listSubtitles(movie.id);
+    setSubtitles(tracks);
+    subtitleCuesRef.current = tracks.length
+      ? parseVttCues(tracks.find((t) => t.lang === preferredLang)?.content ?? tracks[0].content)
+      : [];
+    setActiveSubtitle(preferredLang);
+    setCaptionsEnabled(true);
+    persistSubtitleChoice(preferredLang);
+  };
+
+  const addUploadedSubtitle = async () => {
+    if (!movie?.id || !subtitleFile) return;
+    setSubtitleBusy(true);
+    try {
+      const content = await subtitleFile.text();
+      const track = await uploadSubtitle({
+        mediaId: movie.id,
+        lang: newSubLang.trim(),
+        label: newSubLabel.trim() || newSubLang.trim(),
+        content,
+      });
+      await refreshSubtitles(track.lang);
+      setSubtitleFile(null);
+      toast.success("Subtitle uploaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not upload subtitle");
+    } finally {
+      setSubtitleBusy(false);
+    }
+  };
+
+  const addRemoteSubtitle = async () => {
+    if (!movie?.id || !newSubUrl.trim()) return;
+    setSubtitleBusy(true);
+    try {
+      const track = await addSubtitleFromUrl({
+        mediaId: movie.id,
+        lang: newSubLang.trim(),
+        label: newSubLabel.trim() || newSubLang.trim(),
+        url: newSubUrl.trim(),
+      });
+      await refreshSubtitles(track.lang);
+      setNewSubUrl("");
+      toast.success("Subtitle added from URL");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load subtitle URL");
+    } finally {
+      setSubtitleBusy(false);
+    }
+  };
+
+  const removeSubtitle = async (track: SubtitleTrack) => {
+    if (!track.isOwner) {
+      toast.error("You can only remove subtitles you added");
+      return;
+    }
+    setSubtitleBusy(true);
+    try {
+      await deleteSubtitle(track.id);
+      const tracks = await listSubtitles(movie?.id ?? "");
+      setSubtitles(tracks);
+      if (activeSubtitle === track.lang) {
+        const fallback = tracks[0]?.lang ?? null;
+        setActiveSubtitle(fallback);
+        setCaptionsEnabled(fallback !== null);
+        persistSubtitleChoice(fallback);
+      }
+      toast.success("Subtitle removed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not remove subtitle");
+    } finally {
+      setSubtitleBusy(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -816,6 +981,18 @@ function PlayerPage() {
         )
       ) : null}
 
+      {/* Subtitle overlay for embed players (native video uses <track> elements). */}
+      {isEmbedUrl(videoUrl) && captionsEnabled && activeSubtitle && activeCue && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-[16%] z-20 flex justify-center px-6 sm:bottom-[12%]"
+          aria-live="polite"
+        >
+          <div className="max-w-[85%] rounded bg-black/70 px-4 py-2 text-center text-base font-medium leading-snug text-white shadow-lg sm:max-w-[75%] sm:text-xl">
+            {activeCue.text}
+          </div>
+        </div>
+      )}
+
       {!showControls && (
         <button
           type="button"
@@ -921,47 +1098,153 @@ function PlayerPage() {
                         />
                       </div>
                     )}
-                    {subtitles.length > 0 && (
-                      <>
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                          <div>
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/50">
-                              Captions
-                            </p>
-                            <p className="text-[11px] text-white/50">
-                              Toggle captions on or off without changing the selected subtitle
-                              language.
-                            </p>
-                          </div>
-                          <button
-                            onClick={toggleCaptions}
-                            className={`rounded px-3 py-1.5 text-xs transition ${captionsEnabled ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
-                          >
-                            {captionsEnabled ? "On" : "Off"}
-                          </button>
-                        </div>
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/50">
+                    <div className="mb-3 border-t border-white/10 pt-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-white/50">
                           Subtitles
                         </p>
-                        <div className="flex flex-wrap gap-1 mb-3">
+                        <button
+                          onClick={toggleCaptions}
+                          disabled={!activeSubtitle}
+                          className={`rounded px-3 py-1.5 text-xs transition disabled:opacity-40 ${captionsEnabled ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+                        >
+                          Captions {captionsEnabled ? "On" : "Off"}
+                        </button>
+                      </div>
+
+                      <div className="mb-2 flex flex-wrap gap-1">
+                        <button
+                          onClick={() => handleSubtitleChange(null)}
+                          className={`rounded px-3 py-1.5 text-xs transition ${activeSubtitle === null ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+                        >
+                          Off
+                        </button>
+                        {subtitles.map((sub) => (
                           <button
-                            onClick={() => handleSubtitleChange(null)}
-                            className={`rounded px-3 py-1.5 text-xs transition ${activeSubtitle === null ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+                            key={sub.id}
+                            onClick={() => handleSubtitleChange(sub.lang)}
+                            className={`rounded px-3 py-1.5 text-xs transition ${activeSubtitle === sub.lang ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
                           >
-                            Off
+                            {sub.label}
                           </button>
+                        ))}
+                      </div>
+
+                      {subtitles.length === 0 && (
+                        <p className="mb-2 text-[11px] text-white/50">
+                          No subtitles yet. Upload a .vtt/.srt file or add a third-party subtitle URL
+                          below.
+                        </p>
+                      )}
+
+                      <div className="mb-2 flex items-center justify-between gap-2 rounded border border-white/10 bg-white/5 px-2 py-1.5">
+                        <span className="text-[11px] text-white/60">Timing offset</span>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => changeOffset(-5)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">-5s</button>
+                          <span className="w-12 text-center text-xs tabular-nums text-white/80">{subtitleOffset}s</span>
+                          <button onClick={() => changeOffset(5)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">+5s</button>
+                          <button onClick={() => changeOffset(-subtitleOffset)} className="rounded px-2 py-1 text-[11px] text-white/50 hover:text-white">reset</button>
+                        </div>
+                      </div>
+
+                      {isEmbedUrl(videoUrl) && !embedSyncSupported && activeSubtitle && (
+                        <div className="mb-2 rounded border border-white/10 bg-white/5 px-2 py-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-white/60">
+                              Subtitle clock {Math.floor(manualClockTime / 60)}:
+                              {String(Math.floor(manualClockTime % 60)).padStart(2, "0")}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setManualClockRunning((v) => !v)}
+                                className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+                              >
+                                {manualClockRunning ? "Pause" : "Start"}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setManualClockRunning(false);
+                                  setManualClockTime(0);
+                                }}
+                                className="rounded px-2 py-1 text-[11px] text-white/50 hover:text-white"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          </div>
+                          <p className="mt-1 text-[10px] leading-tight text-white/40">
+                            Embed players don&apos;t share playback time. Start this clock when the
+                            movie starts, then fine-tune with the timing offset.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="space-y-2 rounded border border-white/10 bg-white/5 p-2">
+                        <div className="flex gap-2">
+                          <input
+                            value={newSubLang}
+                            onChange={(e) => setNewSubLang(e.target.value)}
+                            placeholder="Lang"
+                            className="w-14 rounded bg-black/50 px-2 py-1 text-xs outline-none"
+                          />
+                          <input
+                            value={newSubLabel}
+                            onChange={(e) => setNewSubLabel(e.target.value)}
+                            placeholder="Label"
+                            className="min-w-0 flex-1 rounded bg-black/50 px-2 py-1 text-xs outline-none"
+                          />
+                        </div>
+                        <input
+                          value={newSubUrl}
+                          onChange={(e) => setNewSubUrl(e.target.value)}
+                          placeholder="Subtitle URL (.vtt / .srt)"
+                          className="w-full rounded bg-black/50 px-2 py-1 text-xs outline-none"
+                        />
+                        <button
+                          onClick={addRemoteSubtitle}
+                          disabled={subtitleBusy || !newSubUrl.trim()}
+                          className="w-full rounded bg-white/15 px-2 py-1.5 text-xs text-white hover:bg-white/25 disabled:opacity-40"
+                        >
+                          Add subtitle from URL
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="file"
+                            accept=".vtt,.srt,text/vtt,application/x-subrip"
+                            onChange={(e) => setSubtitleFile(e.target.files?.[0] ?? null)}
+                            className="min-w-0 flex-1 text-[11px] text-white/60 file:mr-2 file:rounded file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white"
+                          />
+                          <button
+                            onClick={addUploadedSubtitle}
+                            disabled={subtitleBusy || !subtitleFile}
+                            className="rounded bg-white/15 px-2 py-1.5 text-xs text-white hover:bg-white/25 disabled:opacity-40"
+                          >
+                            Upload
+                          </button>
+                        </div>
+                      </div>
+
+                      {subtitles.length > 0 && (
+                        <div className="mt-2 space-y-1">
                           {subtitles.map((sub) => (
-                            <button
-                              key={sub.lang}
-                              onClick={() => handleSubtitleChange(sub.lang)}
-                              className={`rounded px-3 py-1.5 text-xs transition ${activeSubtitle === sub.lang ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
-                            >
-                              {sub.label}
-                            </button>
+                            <div key={sub.id} className="flex items-center gap-2 text-[11px] text-white/60">
+                              <span className="min-w-0 flex-1 truncate">
+                                {sub.label} <span className="text-white/35">({sub.source})</span>
+                              </span>
+                              {sub.isOwner && (
+                                <button
+                                  onClick={() => removeSubtitle(sub)}
+                                  disabled={subtitleBusy}
+                                  className="text-white/40 hover:text-red-400 disabled:opacity-40"
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
                           ))}
                         </div>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

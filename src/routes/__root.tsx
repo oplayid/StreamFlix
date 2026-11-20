@@ -9,8 +9,6 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, useRef, type ReactNode } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 import appCss from "../styles.css?url";
 import { registerSW } from "../lib/pwa";
@@ -19,7 +17,7 @@ import { CookieConsent } from "@/components/streamflix/CookieConsent";
 import { CustomTitleBar } from "@/components/streamflix/CustomTitleBar";
 import { GlobalContextMenu } from "@/components/streamflix/GlobalContextMenu";
 import { ScreenSaver } from "@/components/streamflix/ScreenSaver";
-import { auth, db } from "@/lib/firebase";
+import { getSession } from "@/lib/session";
 import { metaImageUrl } from "@/lib/seo";
 import { useNavTracker } from "@/lib/nav-history";
 import { Analytics } from "@vercel/analytics/react";
@@ -48,7 +46,7 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error, reset }: { error: unknown; reset: () => void }) {
   console.error(error);
   const router = useRouter();
 
@@ -221,21 +219,20 @@ function RootComponent() {
     };
     document.addEventListener("click", handleExternalLink, true);
 
-    const unsub = onAuthStateChanged(auth, (user) => {
-      try {
-        if (user) {
-          localStorage.setItem("sf:auth", "1");
+    getSession()
+      .then((user) => {
+        try {
+          if (user) localStorage.setItem("sf:auth", "1");
+          else localStorage.removeItem("sf:auth");
+        } catch {}
+        if (initial.current) {
+          initial.current = false;
         } else {
-          localStorage.removeItem("sf:auth");
+          router.invalidate();
+          queryClient.invalidateQueries();
         }
-      } catch {}
-      if (initial.current) {
-        initial.current = false;
-        return;
-      }
-      router.invalidate();
-      if (user) queryClient.invalidateQueries();
-    });
+      })
+      .catch(() => {});
     import("@/lib/device-tracking").then(({ recordCurrentDevice }) => {
       recordCurrentDevice().catch(() => {});
     });
@@ -246,19 +243,6 @@ function RootComponent() {
       setupForegroundPush();
       ensurePushSubscription();
     });
-    const u = auth.currentUser;
-    if (u?.photoURL && u.photoURL !== photoSaved.current) {
-      photoSaved.current = u.photoURL;
-      setDoc(
-        doc(db, "profiles", u.uid),
-        {
-          avatar_url: u.photoURL,
-          updated_at: serverTimestamp(),
-        },
-        { merge: true },
-      ).catch(() => {});
-    }
-
     const handleOffline = () => {
       // If we are on the watch page, do not redirect to offline page.
       if (window.location.pathname.startsWith('/_authenticated/watch/')) {
@@ -282,7 +266,6 @@ function RootComponent() {
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
     return () => {
-      unsub();
       document.removeEventListener("click", handleExternalLink, true);
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);

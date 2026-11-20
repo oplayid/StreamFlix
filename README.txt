@@ -1,50 +1,56 @@
-StreamFlix — Build Notes
-========================
+StreamFlix — Build Notes (self-hosted)
+======================================
 
 WEB APP
 -------
 Dev:              npm run dev            (Vite dev server, port 8080)
-Prod build:       npm run build          (TanStack Start SSR -> .vercel/output for Vercel)
-Lint:             npm run lint
+Prod build:       npm run build          (TanStack Start SSR -> .output/)
 Typecheck:        npx tsc --noEmit -p tsconfig.json
+Lint:             npm run lint
+
+Production runtime:
+    node .output/server/index.mjs        (Nitro node-server, PORT=3000 HOST=0.0.0.0)
+
+Auth & data:
+- Pocket ID (OIDC + PKCE) is the only login provider. Sessions are stored in
+  MongoDB and sent in the HttpOnly sf_session cookie.
+- MongoDB holds users, sessions, profiles, lists, history, devices, reminders,
+  subtitles and Web Push subscriptions. There is no Firebase anywhere.
+- Push notifications use Web Push/VAPID, not FCM. Generate keys with:
+      npx web-push generate-vapid-keys
+
+DOCKER / COOLIFY
+----------------
+- .github/workflows/docker-publish.yml builds and pushes
+  ghcr.io/<owner>/<repo>:latest on every push to main.
+- Build-time (GitHub Actions vars/secrets -> Docker build args):
+      VITE_TMDB_API_KEY, VITE_SITE_URL, VITE_TURNSTILE_SITE_KEY,
+      VITE_WEB_PUSH_PUBLIC_KEY
+- Runtime-only (set in Coolify; never as build args):
+      MONGODB_URI, MONGODB_DB, POCKET_ID_ISSUER, POCKET_ID_CLIENT_ID,
+      POCKET_ID_CLIENT_SECRET, POCKET_ID_REDIRECT_URI, APP_URL,
+      WEB_PUSH_PUBLIC_KEY, WEB_PUSH_PRIVATE_KEY, WEB_PUSH_SUBJECT,
+      NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_MODEL, CRON_SECRET,
+      WAYBACK_ARCHIVE_KEY
+- Deploy the GHCR image as a Docker service in Coolify and expose port 3000.
+- Release reminders cron: GET /api/release-notifications-cron with
+  Authorization: Bearer $CRON_SECRET. See the full table in README.md.
 
 DESKTOP (Electron)
 ------------------
 Dev:              npm run electron:dev
 Prod:             npm run electron:build   (outputs installers to release/)
-
 - In development the Electron shell loads http://localhost:8080.
-- In production it loads https://streamflix.dpdns.org/.
-- Override the URL anytime:  ELECTRON_START_URL=https://streamflix.dpdns.org/ npx electron .
+- Override the URL anytime:  ELECTRON_START_URL=https://<your-domain>/ npx electron .
 
 MOBILE (Capacitor / Android)
 ----------------------------
-The mobile app is a Capacitor WebView wrapper around the deployed site, the same
-way the Electron desktop build works. It loads https://streamflix.dpdns.org/.
-
-What was added:
-- capacitor.config.ts        appId com.itiswayneee.streamflix, server URL, Chrome-like
-                             user agent (so Google's OAuth accepts the WebView), status bar
-- android/                   generated Android project (App ID com.itiswayneee.streamflix)
-- src/lib/mobile.ts          detects the Capacitor runtime, handles the Android hardware
-                             back button, status bar colors, and streamflix:// deep links
-- src/routes/auth.tsx        Google sign-in uses signInWithRedirect inside the WebView
-- streamflix:// scheme       registered in AndroidManifest.xml for deep links
-
-Requirements (one-time):
-- Android Studio (or Android SDK + JDK 21+). Open android/ in Android Studio; it will
-  download Gradle and dependencies on first build. See https://capacitorjs.com/docs/android
-
-Rebuild / sync:
-- After changing capacitor.config.ts or installing plugins:  npm run mobile:sync
-- Run the app:    npm run mobile:open        (opens android/ in Android Studio)
-- Build APK:      npm run mobile:build       (or Build > Build APK in Android Studio)
+- capacitor.config.ts points the WebView at the deployed site.
+- Native Firebase Authentication and FCM plugins were removed. Sign in through
+  the Pocket ID redirect flow; push uses the browser Web Push path.
+- Rebuild/sync: npm run mobile:sync ; open: npm run mobile:open ; APK: npm run mobile:build
 
 IMPORTANT:
-- The mobile shell loads the LIVE deployed site. Web changes in src/ only take effect in
-  the app after you rebuild and redeploy the web app to https://streamflix.dpdns.org/.
-- Email/password sign-in works fully in the app. Google sign-in uses the in-WebView
-  redirect flow; if Google ever blocks it, wire up @capacitor-firebase/authentication
-  (native Google Sign-In) for a fully native OAuth experience.
-- A Play Store build that only wraps a remote URL may be rejected; for store release,
-  consider bundling a local static build or using the native auth plugins.
+- The desktop/mobile shells load the LIVE site. Web changes in src/ only take
+  effect after you rebuild and redeploy the web app.
+- A Play Store build that only wraps a remote URL may be rejected.

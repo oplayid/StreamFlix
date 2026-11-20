@@ -8,7 +8,7 @@ import { LazyImage } from "@/components/streamflix/LazyImage";
 import { Skeleton } from "@/components/ui/skeleton";
 import { loadUpcomingCalendar, loadAiringCalendar } from "@/lib/streamflix-data";
 import type { CalendarTitle } from "@/lib/api/tmdb";
-import { auth } from "@/lib/firebase";
+import { useSession } from "@/lib/session";
 import { toggleReleaseNotification, getNotifiedIds } from "@/lib/release-notifications";
 import { isKidsProfile, filterKidsContent } from "@/lib/kids-mode";
 import { startOfMonth, addMonths, format, isSameMonth } from "date-fns";
@@ -35,7 +35,8 @@ export const Route = createFileRoute("/_authenticated/calendar")({
 const DAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function CalendarPage() {
-  const { items } = Route.useLoaderData();
+  const { user } = useSession();
+  const { items } = Route.useLoaderData() as { items: CalendarTitle[] };
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [notified, setNotified] = useState<Set<string>>(new Set());
 
@@ -64,12 +65,11 @@ function CalendarPage() {
   }, [safeItems, month]);
 
   useEffect(() => {
-    const user = auth.currentUser;
     if (!user) return;
-    getNotifiedIds(user.uid)
+    getNotifiedIds(user.id)
       .then(setNotified)
       .catch(() => {});
-  }, []);
+  }, [user?.id]);
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
 
@@ -84,7 +84,6 @@ function CalendarPage() {
   }, [month]);
 
   const toggle = async (item: CalendarTitle) => {
-    const user = auth.currentUser;
     if (!user) return toast.error("Sign in to get notified about releases");
     if (item.releaseDate && item.releaseDate <= todayStr) {
       return toast.info("This title is already released");
@@ -97,7 +96,7 @@ function CalendarPage() {
       return next;
     });
     try {
-      const added = await toggleReleaseNotification(user.uid, {
+      const added = await toggleReleaseNotification(user.id, {
         id: item.id,
         title: item.title,
         poster: item.poster,

@@ -22,12 +22,15 @@ import {
   BellOff,
   BellRing,
 } from "lucide-react";
-import { auth, db } from "@/lib/firebase";
+import { signOutFn, useSession } from "@/lib/session";
 import {
-  signOut as firebaseSignOut,
-  sendEmailVerification,
-  sendPasswordResetEmail,
-} from "firebase/auth";
+  getUserSettings,
+  getVipStatus,
+  getUserDevices,
+  removeUserDevices,
+  updateUserSettings,
+  type UserDevice as Device,
+} from "@/lib/user-settings";
 
 // Validate avatar URL to prevent XSS
 const isValidAvatarUrl = (url: string): boolean => {
@@ -38,18 +41,6 @@ const isValidAvatarUrl = (url: string): boolean => {
     return false;
   }
 };
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  deleteDoc,
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-  Timestamp,
-} from "firebase/firestore";
 import { Navbar } from "@/components/streamflix/Navbar";
 import { Footer } from "@/components/streamflix/Footer";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -64,22 +55,12 @@ export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
 });
 
-type Device = {
-  id: string;
-  device_id: string;
-  device_label: string;
-  browser: string | null;
-  os: string | null;
-  ip_address: string | null;
-  last_seen_at: Timestamp | null;
-  created_at: Timestamp | null;
-};
-
 type Profile = {
   id: string;
   display_name: string;
   avatar_url: string | null;
   show_google_pfp: boolean;
+  created_at: string;
 };
 
 function deviceIcon(label: string) {
@@ -91,14 +72,13 @@ function deviceIcon(label: string) {
 function SettingsPage() {
   const router = useRouter();
   const qc = useQueryClient();
-  const user = auth.currentUser;
+  const { user } = useSession();
   const [displayName, setDisplayName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [savingName, setSavingName] = useState(false);
   const currentDeviceId = typeof window !== "undefined" ? getDeviceId() : "";
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [sendingReset, setSendingReset] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<{ state: string; message: string } | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
@@ -106,7 +86,6 @@ function SettingsPage() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [notifBusy, setNotifBusy] = useState(false);
   const [hasToken, setHasToken] = useState(false);
-  const [verifyEmailSent, setVerifyEmailSent] = useState(false);
   const isElectron = typeof window !== "undefined" && !!window.electronAPI;
 
   useEffect(() => {
@@ -156,28 +135,6 @@ function SettingsPage() {
     }
   };
 
-  const providers = user?.providerData ?? [];
-  const canChangePassword =
-    !!user?.email &&
-    providers.some((p) => p.providerId === "password");
-
-  const sendResetEmail = async () => {
-    if (!user?.email) return;
-    setSendingReset(true);
-    try {
-      await sendPasswordResetEmail(auth, user.email);
-      toast.success(`Password reset email sent to ${user.email}.`);
-    } catch (e: any) {
-      if (e?.code === "auth/too-many-requests") {
-        toast.error("Too many requests. Try again later.");
-      } else {
-        toast.error(e?.message ?? "Failed to send password reset email.");
-      }
-    } finally {
-      setSendingReset(false);
-    }
-  };
-
   useEffect(() => {
     recordCurrentDevice();
   }, []);
@@ -188,14 +145,13 @@ function SettingsPage() {
     staleTime: 5 * 60 * 1000,
     queryFn: async (): Promise<Profile | null> => {
       if (!user) return null;
-      const snap = await getDoc(doc(db, "profiles", user.uid));
-      if (!snap.exists()) return null;
-      const d = snap.data();
+      const s = await getUserSettings();
       return {
-        id: snap.id,
-        display_name: d.display_name ?? "",
-        avatar_url: d.avatar_url ?? null,
-        show_google_pfp: d.show_google_pfp ?? true,
+        id: user.id,
+        display_name: s.displayName,
+        avatar_url: s.avatarUrl || null,
+        show_google_pfp: s.showProviderPhoto,
+        created_at: s.createdAt,
       };
     },
   });
@@ -205,15 +161,14 @@ function SettingsPage() {
     setAvatarUrl(profile?.avatar_url ?? "");
   }, [profile?.display_name, profile?.avatar_url]);
 
-  const googlePhotoURL: string | undefined = user?.photoURL ?? undefined;
+  const googlePhotoURL: string | undefined = user?.picture ?? undefined;
 
   const { data: isVip } = useQuery({
     queryKey: ["vip", user?.uid],
     enabled: !!user,
     queryFn: async (): Promise<boolean> => {
       if (!user) return false;
-      const snap = await getDoc(doc(db, "vip", user.uid));
-      return snap.exists();
+      return getVipStatus();
     },
   });
 
@@ -227,16 +182,8 @@ function SettingsPage() {
     );
     setSavingName(true);
     try {
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        {
-          avatar_url: googlePhotoURL,
-          show_google_pfp: true,
-          updated_at: serverTimestamp(),
-        },
-        { merge: true },
-      );
-      toast.success("Avatar updated to Google profile picture");
+      await updateUserSettings({ avatarUrl: googlePhotoURL, showProviderPhoto: true });
+      toast.success("Avatar updated to Pocket ID profile picture");
       qc.invalidateQueries({ queryKey: ["profile"] });
     } catch (err: any) {
       setAvatarUrl(prevAvatarUrl);
@@ -256,15 +203,7 @@ function SettingsPage() {
     );
     setSavingName(true);
     try {
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        {
-          avatar_url: "",
-          show_google_pfp: false,
-          updated_at: serverTimestamp(),
-        },
-        { merge: true },
-      );
+      await updateUserSettings({ avatarUrl: "", showProviderPhoto: false });
       toast.success("Avatar removed");
       qc.invalidateQueries({ queryKey: ["profile"] });
     } catch (err: any) {
@@ -287,15 +226,7 @@ function SettingsPage() {
     if (!user) return;
     setSavingName(true);
     try {
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        {
-          avatar_url: dataUrl,
-          show_google_pfp: false,
-          updated_at: serverTimestamp(),
-        },
-        { merge: true },
-      );
+      await updateUserSettings({ avatarUrl: dataUrl, showProviderPhoto: false });
       setAvatarUrl(dataUrl);
       setCropSrc(null);
       toast.success("Avatar updated");
@@ -312,15 +243,12 @@ function SettingsPage() {
     refetchInterval: 30_000,
     queryFn: async (): Promise<Device[]> => {
       if (!user) return [];
-      const q = query(collection(db, "user_devices"), where("user_id", "==", user.uid));
-      const snap = await getDocs(q);
-      return snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }) as Device)
-        .sort((a, b) => {
-          const ta = a.last_seen_at?.toDate().getTime() ?? 0;
-          const tb = b.last_seen_at?.toDate().getTime() ?? 0;
-          return tb - ta;
-        });
+      const rows = await getUserDevices();
+      return rows.sort((a, b) => {
+        const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+        const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+        return tb - ta;
+      });
     },
   });
 
@@ -329,7 +257,7 @@ function SettingsPage() {
   const removeDevice = useMutation({
     mutationFn: async (d: Device) => {
       if (d.device_id === currentDeviceId) return;
-      await deleteDoc(doc(db, "user_devices", d.id));
+      await removeUserDevices(d.device_id);
     },
     onMutate: async (d: Device) => {
       if (d.device_id === currentDeviceId) return { prev: undefined };
@@ -353,12 +281,7 @@ function SettingsPage() {
   const removeAllOthers = useMutation({
     mutationFn: async () => {
       if (!user) return;
-      const q = query(collection(db, "user_devices"), where("user_id", "==", user.uid));
-      const snap = await getDocs(q);
-      const deletes = snap.docs
-        .filter((d) => d.data().device_id !== currentDeviceId)
-        .map((d) => deleteDoc(doc(db, "user_devices", d.id)));
-      await Promise.all(deletes);
+      await removeUserDevices(currentDeviceId, true);
     },
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: deviceQueryKey });
@@ -389,14 +312,7 @@ function SettingsPage() {
     );
     setSavingName(true);
     try {
-      await setDoc(
-        doc(db, "profiles", user.uid),
-        {
-          display_name: trimmed,
-          updated_at: serverTimestamp(),
-        },
-        { merge: true },
-      );
+      await updateUserSettings({ displayName: trimmed });
       toast.success("Profile updated");
       qc.invalidateQueries({ queryKey: ["profile"] });
     } catch (err: any) {
@@ -407,20 +323,11 @@ function SettingsPage() {
   };
 
   const signOut = async () => {
-    if (user) {
-      const q = query(
-        collection(db, "user_devices"),
-        where("user_id", "==", user.uid),
-        where("device_id", "==", currentDeviceId),
-      );
-      const snap = await getDocs(q);
-      snap.forEach((d) => deleteDoc(doc(db, "user_devices", d.id)));
-    }
-    await firebaseSignOut(auth);
+    await signOutFn();
     router.navigate({ to: "/auth", replace: true });
   };
 
-  const createdAt = user?.metadata?.creationTime ?? null;
+  const createdAt = profile?.created_at ?? null;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -504,7 +411,7 @@ function SettingsPage() {
                       disabled={savingName}
                       className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-50"
                     >
-                      <Check className="size-3" /> Use Google photo
+                      <Check className="size-3" /> Use Pocket ID photo
                     </button>
                   )}
                   <button
@@ -550,27 +457,7 @@ function SettingsPage() {
                     >
                       {user?.email ?? "—"}
                     </span>
-                    {user?.emailVerified ? (
-                      <CheckCircle2 className="ml-auto size-4 shrink-0 text-emerald-400" />
-                    ) : (
-                      <button
-                        onClick={async () => {
-                          if (!user) return;
-                          setVerifyEmailSent(true);
-                          try {
-                            await sendEmailVerification(user);
-                            toast.success("Verification email sent.");
-                          } catch (e: any) {
-                            setVerifyEmailSent(false);
-                            toast.error(e.message);
-                          }
-                        }}
-                        disabled={verifyEmailSent}
-                        className="ml-auto shrink-0 rounded-md border border-border px-2 py-0.5 text-[10px] hover:bg-accent whitespace-nowrap disabled:opacity-50"
-                      >
-                        {verifyEmailSent ? "Email sent" : "Verify email"}
-                      </button>
-                    )}
+                    <CheckCircle2 className="ml-auto size-4 shrink-0 text-emerald-400" />
                   </div>
                 </div>
                 <div>
@@ -619,32 +506,15 @@ function SettingsPage() {
           )}
         </section>
 
-        {/* Security */}
-        {canChangePassword && (
-          <section className="mt-6 rounded-lg border border-border bg-card/40 p-4 sm:p-6">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <KeyRound className="size-4" /> Password
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              We'll send a password reset link to {user.email}. Follow the link to set a new
-              password for your account.
-            </p>
-            <div className="mt-4">
-              <button
-                onClick={sendResetEmail}
-                disabled={sendingReset}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {sendingReset ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Mail className="size-4" />
-                )}
-                {sendingReset ? "Sending..." : "Send reset email"}
-              </button>
-            </div>
-          </section>
-        )}
+        {/* Password is managed by Pocket ID */}
+        <section className="mt-6 rounded-lg border border-border bg-card/40 p-4 sm:p-6">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <KeyRound className="size-4" /> Password
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Your password is managed by Pocket ID. Use Pocket ID to change or reset it.
+          </p>
+        </section>
 
         {/* Accessibility */}
         <section className="mt-6 rounded-lg border border-border bg-card/40 p-4 sm:p-6">
@@ -766,7 +636,7 @@ function SettingsPage() {
             {devicesQ.data?.map((d) => {
               const Icon = deviceIcon(d.device_label);
               const isCurrent = d.device_id === currentDeviceId;
-              const lastSeen = d.last_seen_at?.toDate();
+              const lastSeen = d.last_seen_at ? new Date(d.last_seen_at) : null;
               return (
                 <div
                   key={d.id}

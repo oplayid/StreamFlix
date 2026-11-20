@@ -9,15 +9,5 @@
         }
       ]
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/release-notifications-cron",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/archive",
-      "schedule": "0 6 * * *"
-    }
   ]
 }
