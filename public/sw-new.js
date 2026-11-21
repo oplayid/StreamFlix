@@ -1,5 +1,5 @@
-const CACHE_NAME = "oplayid-cache-v2";
-const ASSET_CACHE = "oplayid-assets-v2";
+const CACHE_NAME = "oplayid-cache-v3";
+const ASSET_CACHE = "oplayid-assets-v3";
 const OFFLINE_URL = "/offline";
 
 const PRECACHE_URLS = ["/", OFFLINE_URL, "/browse"];

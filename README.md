@@ -6,6 +6,8 @@ Playback still uses external embed players. Subtitles are a separate overlay/sou
 
 The product is branded **OPLAY.ID** everywhere users can see it. On the sign-in screen the Pocket ID flow is presented as **OPLAY.ID Passkey**; Pocket ID remains the OIDC provider behind the scenes (client id, issuer, and redirect URI are configured with `POCKET_ID_*` variables).
 
+Brand masters are the official OPLAY.ID files in `assets/favicon_io/` (`android-chrome-192x192.png`, `android-chrome-512x512.png`, `favicon.ico`, and the favicon PNG sizes). They are copied to `public/` for the favicon, PWA icons, and notifications; `public/meta.png` is the 1200×630 social preview built from the same logo. Android launcher and splash resources under `android/app/src/main/res/` are generated from the same logo as well, but the prebuilt APK must be rebuilt to pick them up. When replacing those outputs, bump the `oplayid-assets-*` cache name in `public/sw-new.js` so clients do not keep showing a cached logo. The brand accent is `#FCC217`.
+
 ### Legacy internal identifiers (kept on purpose)
 
 These are not user-facing branding. Renaming them would break sessions, stored data, or the Coolify deployment, so they were intentionally preserved:

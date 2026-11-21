@@ -29,7 +29,7 @@ export function seoMetaFor(
     { property: "og:image", content: resolvedImage },
     { property: "og:image:width", content: imageWidth || "1280" },
     { property: "og:image:height", content: imageHeight || "720" },
-    { property: "og:image:type", content: "image/jpeg" },
+    { property: "og:image:type", content: "image/png" },
     ...(url ? [{ property: "og:url", content: url }] : []),
     { property: "og:type", content: type },
     { property: "og:site_name", content: "OPLAY.ID" },
