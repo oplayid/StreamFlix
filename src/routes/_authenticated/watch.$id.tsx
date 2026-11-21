@@ -71,8 +71,8 @@ const availableEmbedServers: EmbedServer[] = [
     id: "vsembed",
     name: "VSEmbed",
     urls: {
-      movie: "https://vsembed.su/embed/movie/{id}",
-      tv: "https://vsembed.su/embed/tv/{id}/{season}/{episode}",
+      movie: "https://stream.oplay.id/embed/movie/{id}",
+      tv: "https://stream.oplay.id/embed/tv/{id}/{season}/{episode}",
     },
   },
   {
