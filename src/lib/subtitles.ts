@@ -13,6 +13,10 @@ export type SubtitleTrack = {
   url: string;
   content: string;
   isOwner: boolean;
+  /** Seconds added to cue times. */
+  offset: number;
+  /** Playback-speed correction; 1 means no drift. */
+  scale: number;
   createdAt: string;
 };
 
@@ -25,11 +29,45 @@ type SubtitleDoc = {
   source: "upload" | "url";
   origin?: string;
   content: string;
+  offset?: number;
+  scale?: number;
   createdAt: Date;
 };
 
 const MAX_SUBTITLE_BYTES = 2 * 1024 * 1024;
 const mediaIdSchema = z.string().min(1).max(100).regex(/^(tv-)?\d+$/);
+
+/** Indonesian is preferred, then English, then any other language. */
+export function normalizeLang(lang: string): string {
+  const value = lang.trim().toLowerCase();
+  if (["id", "ids", "ind", "in", "id-id", "indonesia", "bahasa indonesia"].includes(value)) return "id";
+  if (["en", "eng", "en-us", "en-gb", "english"].includes(value)) return "en";
+  return value;
+}
+
+export function languageLabel(lang: string): string {
+  const code = normalizeLang(lang);
+  if (code === "id") return "Bahasa Indonesia";
+  if (code === "en") return "English";
+  return lang;
+}
+
+function languageRank(lang: string): number {
+  const code = normalizeLang(lang);
+  if (code === "id") return 0;
+  if (code === "en") return 1;
+  return 2;
+}
+
+/** Saved choice wins; otherwise Indonesian first, English as fallback. */
+export function pickInitialSubtitle(tracks: SubtitleTrack[], saved: string | null): string | null {
+  const find = (code: string) => tracks.find((track) => normalizeLang(track.lang) === code);
+  if (saved) {
+    const match = find(normalizeLang(saved));
+    if (match) return match.lang;
+  }
+  return find("id")?.lang ?? find("en")?.lang ?? tracks[0]?.lang ?? null;
+}
 
 /** Convert Common Subtitle Format (.srt) into WebVTT. VTT is passed through. */
 export function toWebVtt(input: string): string {
@@ -69,6 +107,8 @@ async function publicTrack(doc: SubtitleDoc, viewerId: string | null): Promise<S
     url: `/api/subtitles/${encodeURIComponent(doc._id)}`,
     content: doc.content,
     isOwner: !!viewerId && doc.userId === viewerId,
+    offset: doc.offset ?? 0,
+    scale: doc.scale ?? 1,
     createdAt: new Date(doc.createdAt).toISOString(),
   };
 }
@@ -93,7 +133,8 @@ const readTracks = createServerFn({ method: "GET" })
       })
       .sort({ createdAt: 1 })
       .toArray();
-    return Promise.all(docs.map((doc) => publicTrack(doc, userId)));
+    const tracks = await Promise.all(docs.map((doc) => publicTrack(doc, userId)));
+    return tracks.sort((a, b) => languageRank(a.lang) - languageRank(b.lang));
   });
 
 const createUpload = createServerFn({ method: "POST" })
@@ -167,6 +208,25 @@ const removeTrack = createServerFn({ method: "POST" })
     await col.deleteOne({ _id: data.id, userId: user.id });
   });
 
+const updateTiming = createServerFn({ method: "POST" })
+  .validator(z.object({
+    id: z.string().min(1),
+    offset: z.number().min(-600).max(600),
+    scale: z.number().min(0.9).max(1.1),
+  }))
+  .handler(async ({ data }) => {
+    const { requireUser } = await import("./auth");
+    const user = await requireUser();
+    const col = await collection<SubtitleDoc>("subtitles");
+    const doc = await col.findOne({ _id: data.id });
+    if (!doc) throw new Error("Subtitle not found");
+    if (doc.userId !== user.id) throw new Error("You can only adjust subtitles you added");
+    await col.updateOne(
+      { _id: data.id },
+      { $set: { offset: data.offset, scale: data.scale } },
+    );
+  });
+
 export function listSubtitles(mediaId: string): Promise<SubtitleTrack[]> {
   return readTracks({ data: { mediaId } });
 }
@@ -191,6 +251,14 @@ export function addSubtitleFromUrl(input: {
 
 export function deleteSubtitle(id: string): Promise<void> {
   return removeTrack({ data: { id } });
+}
+
+export function updateSubtitleTiming(input: {
+  id: string;
+  offset: number;
+  scale: number;
+}): Promise<void> {
+  return updateTiming({ data: input });
 }
 
 /** Client-side WebVTT cue parser used for the embed overlay. */
@@ -221,4 +289,24 @@ export function parseVttCues(content: string): SubtitleCue[] {
 
 export function cueAtTime(cues: SubtitleCue[], time: number): SubtitleCue | null {
   return cues.find((cue) => time >= cue.start && time <= cue.end) ?? null;
+}
+
+export type SubtitleValidation = { cues: SubtitleCue[]; warnings: string[] };
+
+/** Validate an uploaded file before saving and expose a short preview. */
+export function validateSubtitle(content: string): SubtitleValidation {
+  const cues = parseVttCues(toWebVtt(content));
+  if (cues.length === 0) throw new Error("No valid subtitle cues found");
+
+  const warnings: string[] = [];
+  if (cues.some((cue, i) => i > 0 && cue.start < cues[i - 1].start)) {
+    warnings.push("Beberapa cue tidak berurutan berdasarkan waktu.");
+  }
+  if (cues.some((cue) => cue.end <= cue.start)) {
+    warnings.push("Ada cue dengan durasi nol atau negatif.");
+  }
+  const lastEnd = Math.max(...cues.map((cue) => cue.end));
+  if (lastEnd > 24 * 3600) warnings.push("Durasi subtitle lebih dari 24 jam — periksa kembali file-nya.");
+
+  return { cues, warnings };
 }

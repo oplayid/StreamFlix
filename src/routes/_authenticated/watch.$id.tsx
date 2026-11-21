@@ -16,9 +16,13 @@ import {
   addSubtitleFromUrl,
   cueAtTime,
   deleteSubtitle,
+  languageLabel,
   listSubtitles,
   parseVttCues,
+  pickInitialSubtitle,
+  updateSubtitleTiming,
   uploadSubtitle,
+  validateSubtitle,
   type SubtitleCue,
   type SubtitleTrack,
 } from "@/lib/subtitles";
@@ -52,27 +56,17 @@ function fmt(t: number) {
 interface EmbedServer {
   id: string;
   name: string;
-  isFrench: boolean;
   urls: {
     movie: string;
     tv: string;
   };
 }
 
+// Kept deliberately small: these two were the most reliable in direct probes.
 const availableEmbedServers: EmbedServer[] = [
-  {
-    id: "vidking",
-    name: "VidKing",
-    isFrench: false,
-    urls: {
-      movie: "https://vidking.ws/embed/movie/{id}?color=e50914&autoPlay=true",
-      tv: "https://vidking.ws/embed/tv/{id}/{season}/{episode}?color=e50914&autoPlay=true&nextEpisode=true",
-    },
-  },
   {
     id: "vsembed",
     name: "VSEmbed",
-    isFrench: false,
     urls: {
       movie: "https://vsembed.su/embed/movie/{id}",
       tv: "https://vsembed.su/embed/tv/{id}/{season}/{episode}",
@@ -81,82 +75,9 @@ const availableEmbedServers: EmbedServer[] = [
   {
     id: "2embed",
     name: "2Embed",
-    isFrench: false,
     urls: {
       movie: "https://www.2embed.cc/embed/{id}",
       tv: "https://www.2embed.cc/embedtv/{id}&s={season}&e={episode}",
-    },
-  },
-  {
-    id: "multiembed",
-    name: "MultiEmbed",
-    isFrench: false,
-    urls: {
-      movie: "https://multiembed.mov/?video_id={id}&tmdb=1",
-      tv: "https://multiembed.mov/?video_id={id}&tmdb=1&s={season}&e={episode}",
-    },
-  },
-  {
-    id: "videasy",
-    name: "VidEasy",
-    isFrench: false,
-    urls: {
-      movie: "https://player.videasy.net/movie/{id}",
-      tv: "https://player.videasy.net/tv/{id}/{season}/{episode}",
-    },
-  },
-  {
-    id: "smashystream",
-    name: "SmashyStream",
-    isFrench: false,
-    urls: {
-      movie: "https://embed.smashystream.com/playere.php?tmdb={id}",
-      tv: "https://embed.smashystream.com/playere.php?tmdb={id}&season={season}&episode={episode}",
-    },
-  },
-  {
-    id: "pstream",
-    name: "P-Stream",
-    isFrench: false,
-    urls: {
-      movie: "https://iframe.pstream.org/embed/tmdb-movie-{id}",
-      tv: "https://iframe.pstream.org/embed/tmdb-tv-{id}/{season}/{episode}",
-    },
-  },
-  {
-    id: "vidsrccc",
-    name: "VidSrc.cc",
-    isFrench: false,
-    urls: {
-      movie: "https://vidsrc.cc/v2/embed/movie/{id}",
-      tv: "https://vidsrc.cc/v2/embed/tv/{id}/{season}/{episode}",
-    },
-  },
-  {
-    id: "vidsrcto",
-    name: "VidSrc.to",
-    isFrench: false,
-    urls: {
-      movie: "https://vidsrc.to/embed/movie/{id}",
-      tv: "https://vidsrc.to/embed/tv/{id}/{season}/{episode}",
-    },
-  },
-  {
-    id: "vidsrcrip",
-    name: "VidSrc.rip",
-    isFrench: false,
-    urls: {
-      movie: "https://vidsrc.rip/embed/movie/{id}",
-      tv: "https://vidsrc.rip/embed/tv/{id}/{season}/{episode}",
-    },
-  },
-  {
-    id: "vidsrcsu",
-    name: "VidSrc.su",
-    isFrench: false,
-    urls: {
-      movie: "https://vidsrc.su/embed/movie/{id}",
-      tv: "https://vidsrc.su/embed/tv/{id}/{season}/{episode}",
     },
   },
 ];
@@ -237,12 +158,12 @@ function PlayerPage() {
   const mainVideoUrlRef = useRef<string>("");
   const [mainVideoUrl, setMainVideoUrl] = useState("");
   const [selectedServerId, setSelectedServerId] = useState<string>(() => {
-    if (typeof window === "undefined") return "vidking";
+    if (typeof window === "undefined") return "vsembed";
     try {
       const savedId = localStorage.getItem("sf:embedServer");
-      return availableEmbedServers.some((server) => server.id === savedId) ? savedId! : "vidking";
+      return availableEmbedServers.some((server) => server.id === savedId) ? savedId! : "vsembed";
     } catch {
-      return "vidking";
+      return "vsembed";
     }
   });
   const selectedServer =
@@ -279,10 +200,13 @@ function PlayerPage() {
   const [ended, setEnded] = useState(false);
   const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
   const [subtitleBusy, setSubtitleBusy] = useState(false);
-  const [newSubLang, setNewSubLang] = useState("en");
-  const [newSubLabel, setNewSubLabel] = useState("English");
+  const [newSubLang, setNewSubLang] = useState("id");
+  const [newSubLabel, setNewSubLabel] = useState("Bahasa Indonesia");
   const [newSubUrl, setNewSubUrl] = useState("");
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
+  const [subtitlePreview, setSubtitlePreview] = useState<SubtitleCue[]>([]);
+  const [subtitleWarnings, setSubtitleWarnings] = useState<string[]>([]);
+  const [subtitleInvalid, setSubtitleInvalid] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const [showRotateHint, setShowRotateHint] = useState(false);
   const [isPortrait, setIsPortrait] = useState(
@@ -292,7 +216,10 @@ function PlayerPage() {
   );
   const [activeSubtitle, setActiveSubtitle] = useState<string | null>(null);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
-  const [subtitleOffset, setSubtitleOffset] = useState(0);
+  const [timing, setTiming] = useState({ offset: 0, scale: 1 });
+  const timingRef = useRef(timing);
+  const [syncAnchors, setSyncAnchors] = useState<Array<{ t: number; cueStart: number }>>([]);
+  const [syncHint, setSyncHint] = useState("");
   // Third-party embeds cannot report playback time, so the subtitle overlay uses
   // a local clock that the viewer starts/pauses alongside the embed player.
   const [manualClockRunning, setManualClockRunning] = useState(false);
@@ -589,23 +516,63 @@ function PlayerPage() {
   }, [activeSubtitle, updateSubtitleTracks]);
 
   // --- Custom subtitles (own uploads and third-party URLs) ---
+  const clampTiming = (value: { offset: number; scale: number }) => ({
+    offset: Math.max(-600, Math.min(600, value.offset)),
+    scale: Math.max(0.9, Math.min(1.1, value.scale)),
+  });
+
+  const persistTiming = useCallback(async (next: { offset: number; scale: number }) => {
+    const clean = clampTiming(next);
+    timingRef.current = clean;
+    setTiming(clean);
+    const active = subtitles.find((track) => track.lang === activeSubtitle);
+    setSubtitles((prev) => prev.map((track) =>
+      track.id === active?.id ? { ...track, ...clean } : track,
+    ));
+    if (!active?.isOwner) return;
+    try {
+      await updateSubtitleTiming({ id: active.id, ...clean });
+    } catch {
+      toast.error("Could not save subtitle timing");
+    }
+  }, [subtitles, activeSubtitle]);
+
   useEffect(() => {
     if (!movie?.id) return;
     let cancelled = false;
-    listSubtitles(movie.id)
-      .then((tracks) => {
+    const mediaId = movie.id;
+    listSubtitles(mediaId)
+      .then(async (tracks) => {
+        let saved: string | null = null;
+        let legacyOffset: number | null = null;
+        try { saved = localStorage.getItem(`sf:subtitle:${mediaId}`); } catch {}
+        try {
+          const raw = localStorage.getItem(`sf:subtitleOffset:${mediaId}`);
+          if (raw != null && Number.isFinite(Number(raw))) legacyOffset = Number(raw);
+        } catch {}
+        const initial = pickInitialSubtitle(tracks, saved);
         if (cancelled) return;
         setSubtitles(tracks);
-        let saved: string | null = null;
-        try { saved = localStorage.getItem(`sf:subtitle:${movie.id}`); } catch {}
-        const initial = tracks.find((t) => t.lang === saved)?.lang ?? tracks[0]?.lang ?? null;
         setActiveSubtitle(initial);
         setCaptionsEnabled(initial !== null);
-        let offset = 0;
-        try { offset = Number(localStorage.getItem(`sf:subtitleOffset:${movie.id}`) ?? 0); } catch {}
-        setSubtitleOffset(Number.isFinite(offset) ? offset : 0);
         setManualClockTime(0);
         setManualClockRunning(false);
+
+        // Migrate the old single global offset into the selected track once.
+        if (legacyOffset && legacyOffset !== 0 && initial) {
+          const track = tracks.find((item) => item.lang === initial);
+          if (track?.isOwner && track.offset === 0) {
+            try {
+              await updateSubtitleTiming({ id: track.id, offset: legacyOffset, scale: 1 });
+              if (!cancelled) {
+                setSubtitles((prev) => prev.map((item) =>
+                  item.id === track.id ? { ...item, offset: legacyOffset!, scale: 1 } : item,
+                ));
+                localStorage.removeItem(`sf:subtitleOffset:${mediaId}`);
+              }
+            } catch {}
+          }
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -615,6 +582,15 @@ function PlayerPage() {
     const selected = subtitles.find((track) => track.lang === activeSubtitle);
     subtitleCuesRef.current = selected ? parseVttCues(selected.content) : [];
   }, [subtitles, activeSubtitle]);
+
+  useEffect(() => {
+    const selected = subtitles.find((track) => track.lang === activeSubtitle);
+    const next = { offset: selected?.offset ?? 0, scale: selected?.scale ?? 1 };
+    timingRef.current = next;
+    setTiming(next);
+    setSyncAnchors([]);
+    setSyncHint("");
+  }, [activeSubtitle, subtitles]);
 
   const subtitleClockTime = embedSyncSupported ? currentTime : manualClockTime;
 
@@ -630,18 +606,88 @@ function PlayerPage() {
   }, [manualClockRunning]);
 
   useEffect(() => {
+    // Reverse-transform the playback clock so timing corrections apply to cues.
+    const sourceTime = (subtitleClockTime - timing.offset) / timing.scale;
     setActiveCue(
-      captionsEnabled
-        ? cueAtTime(subtitleCuesRef.current, subtitleClockTime + subtitleOffset)
-        : null,
+      captionsEnabled ? cueAtTime(subtitleCuesRef.current, sourceTime) : null,
     );
-  }, [subtitleClockTime, subtitleOffset, captionsEnabled, subtitles, activeSubtitle]);
+  }, [subtitleClockTime, timing.offset, timing.scale, captionsEnabled, subtitles, activeSubtitle]);
 
   const changeOffset = (delta: number) => {
-    setSubtitleOffset((prev) => {
-      const next = Math.max(-600, Math.min(600, prev + delta));
-      try { localStorage.setItem(`sf:subtitleOffset:${movie?.id ?? ""}`, String(next)); } catch {}
-      return next;
+    void persistTiming({ ...timingRef.current, offset: timingRef.current.offset + delta });
+  };
+
+  const nearestCueTo = (time: number) => {
+    const cues = subtitleCuesRef.current;
+    const { offset, scale } = timingRef.current;
+    return cues.reduce<SubtitleCue | null>((best, cue) => {
+      if (!best) return cue;
+      return Math.abs(cue.start * scale + offset - time) < Math.abs(best.start * scale + offset - time)
+        ? cue
+        : best;
+    }, null);
+  };
+
+  const alignNearestCue = () => {
+    const cue = nearestCueTo(subtitleClockTime);
+    if (!cue) {
+      toast.error("Pilih subtitle terlebih dahulu");
+      return;
+    }
+    const offset = subtitleClockTime - cue.start * timingRef.current.scale;
+    setSyncHint(`Diselaraskan ke: "${cue.text.slice(0, 48)}"`);
+    void persistTiming({ ...timingRef.current, offset });
+  };
+
+  const setDriftAnchor = () => {
+    const cue = nearestCueTo(subtitleClockTime);
+    if (!cue) {
+      toast.error("Pilih subtitle terlebih dahulu");
+      return;
+    }
+    const next = [...syncAnchors, { t: subtitleClockTime, cueStart: cue.start }];
+    if (next.length < 2) {
+      setSyncAnchors(next);
+      setSyncHint("Titik A tersimpan. Tekan lagi saat mencapai cue berikutnya.");
+      return;
+    }
+    const [a, b] = next;
+    const cueDelta = b.cueStart - a.cueStart;
+    if (cueDelta <= 0 || b.t - a.t <= 0) {
+      toast.error("Pilih dua cue yang berbeda untuk titik A dan B");
+      setSyncAnchors([next[1]]);
+      return;
+    }
+    const scale = (b.t - a.t) / cueDelta;
+    const clean = clampTiming({ offset: a.t - a.cueStart * scale, scale });
+    setSyncAnchors([]);
+    setSyncHint(`Drift dikoreksi: ${clean.scale.toFixed(3)}×`);
+    void persistTiming(clean);
+  };
+
+  const resetDrift = () => {
+    const cue = nearestCueTo(subtitleClockTime);
+    const offset = cue ? subtitleClockTime - cue.start : timingRef.current.offset;
+    setSyncAnchors([]);
+    setSyncHint("Drift dikembalikan ke 1.000×");
+    void persistTiming({ offset, scale: 1 });
+  };
+
+  const onSubtitleFileChange = (file?: File) => {
+    setSubtitleFile(file ?? null);
+    setSubtitlePreview([]);
+    setSubtitleWarnings([]);
+    setSubtitleInvalid(false);
+    if (!file) return;
+    void file.text().then((text) => {
+      try {
+        const result = validateSubtitle(text);
+        setSubtitlePreview(result.cues.slice(0, 3));
+        setSubtitleWarnings(result.warnings);
+      } catch (error) {
+        setSubtitleInvalid(true);
+        setSubtitleWarnings([error instanceof Error ? error.message : "Invalid subtitle file"]);
+      }
     });
   };
 
@@ -652,7 +698,7 @@ function PlayerPage() {
     subtitleCuesRef.current = tracks.length
       ? parseVttCues(tracks.find((t) => t.lang === preferredLang)?.content ?? tracks[0].content)
       : [];
-    setActiveSubtitle(preferredLang);
+    setActiveSubtitle(pickInitialSubtitle(tracks, preferredLang));
     setCaptionsEnabled(true);
     persistSubtitleChoice(preferredLang);
   };
@@ -709,7 +755,7 @@ function PlayerPage() {
       const tracks = await listSubtitles(movie?.id ?? "");
       setSubtitles(tracks);
       if (activeSubtitle === track.lang) {
-        const fallback = tracks[0]?.lang ?? null;
+        const fallback = pickInitialSubtitle(tracks, null);
         setActiveSubtitle(fallback);
         setCaptionsEnabled(fallback !== null);
         persistSubtitleChoice(fallback);
@@ -1125,7 +1171,10 @@ function PlayerPage() {
                             onClick={() => handleSubtitleChange(sub.lang)}
                             className={`rounded px-3 py-1.5 text-xs transition ${activeSubtitle === sub.lang ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
                           >
-                            {sub.label}
+                            <span className="font-semibold">{languageLabel(sub.lang)}</span>
+                            {sub.label !== languageLabel(sub.lang) && (
+                              <span className="ml-1 text-white/50">{sub.label}</span>
+                            )}
                           </button>
                         ))}
                       </div>
@@ -1137,14 +1186,38 @@ function PlayerPage() {
                         </p>
                       )}
 
-                      <div className="mb-2 flex items-center justify-between gap-2 rounded border border-white/10 bg-white/5 px-2 py-1.5">
-                        <span className="text-[11px] text-white/60">Timing offset</span>
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => changeOffset(-5)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">-5s</button>
-                          <span className="w-12 text-center text-xs tabular-nums text-white/80">{subtitleOffset}s</span>
-                          <button onClick={() => changeOffset(5)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">+5s</button>
-                          <button onClick={() => changeOffset(-subtitleOffset)} className="rounded px-2 py-1 text-[11px] text-white/50 hover:text-white">reset</button>
+                      <div className="mb-2 rounded border border-white/10 bg-white/5 px-2 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-white/60">Timing offset</span>
+                          <span className="text-xs tabular-nums text-white/80">{timing.offset.toFixed(1)}s</span>
                         </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <button onClick={() => changeOffset(-5)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">-5s</button>
+                          <button onClick={() => changeOffset(-1)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">-1s</button>
+                          <button onClick={() => changeOffset(-0.5)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">-0.5s</button>
+                          <button onClick={() => changeOffset(0.5)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">+0.5s</button>
+                          <button onClick={() => changeOffset(1)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">+1s</button>
+                          <button onClick={() => changeOffset(5)} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">+5s</button>
+                          <button onClick={() => void persistTiming({ offset: 0, scale: 1 })} className="rounded px-2 py-1 text-[11px] text-white/50 hover:text-white">reset</button>
+                        </div>
+                      </div>
+
+                      <div className="mb-2 rounded border border-white/10 bg-white/5 px-2 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-white/60">Pencocokan waktu</span>
+                          <span className="text-xs tabular-nums text-white/80">{timing.scale.toFixed(3)}×</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <button onClick={alignNearestCue} className="rounded bg-white/15 px-2 py-1 text-xs text-white hover:bg-white/25">Sinkron di sini</button>
+                          <button onClick={setDriftAnchor} className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20">
+                            {syncAnchors.length ? "Titik B" : "Titik A"}
+                          </button>
+                          <button onClick={resetDrift} className="rounded px-2 py-1 text-[11px] text-white/50 hover:text-white">Reset drift</button>
+                        </div>
+                        <p className="mt-1 text-[10px] leading-tight text-white/40">
+                          Tekan &quot;Sinkron di sini&quot; saat dialog muncul. Untuk selisih kecepatan, tekan Titik A lalu Titik B pada dialog berikutnya.
+                        </p>
+                        {syncHint && <p className="mt-1 text-[10px] leading-tight text-emerald-400/80">{syncHint}</p>}
                       </div>
 
                       {isEmbedUrl(videoUrl) && !embedSyncSupported && activeSubtitle && (
@@ -1174,7 +1247,7 @@ function PlayerPage() {
                           </div>
                           <p className="mt-1 text-[10px] leading-tight text-white/40">
                             Embed players don&apos;t share playback time. Start this clock when the
-                            movie starts, then fine-tune with the timing offset.
+                            movie starts, then use &quot;Sinkron di sini&quot; or the timing offset.
                           </p>
                         </div>
                       )}
@@ -1183,8 +1256,11 @@ function PlayerPage() {
                         <div className="flex gap-2">
                           <input
                             value={newSubLang}
-                            onChange={(e) => setNewSubLang(e.target.value)}
-                            placeholder="Lang"
+                            onChange={(e) => {
+                              setNewSubLang(e.target.value);
+                              setNewSubLabel(languageLabel(e.target.value));
+                            }}
+                            placeholder="id / en"
                             className="w-14 rounded bg-black/50 px-2 py-1 text-xs outline-none"
                           />
                           <input
@@ -1211,17 +1287,29 @@ function PlayerPage() {
                           <input
                             type="file"
                             accept=".vtt,.srt,text/vtt,application/x-subrip"
-                            onChange={(e) => setSubtitleFile(e.target.files?.[0] ?? null)}
+                            onChange={(e) => onSubtitleFileChange(e.target.files?.[0])}
                             className="min-w-0 flex-1 text-[11px] text-white/60 file:mr-2 file:rounded file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-white"
                           />
                           <button
                             onClick={addUploadedSubtitle}
-                            disabled={subtitleBusy || !subtitleFile}
+                            disabled={subtitleBusy || !subtitleFile || subtitleInvalid}
                             className="rounded bg-white/15 px-2 py-1.5 text-xs text-white hover:bg-white/25 disabled:opacity-40"
                           >
                             Upload
                           </button>
                         </div>
+                        {(subtitlePreview.length > 0 || subtitleWarnings.length > 0) && (
+                          <div className="rounded border border-white/10 bg-black/40 p-2">
+                            {subtitleWarnings.map((warning) => (
+                              <p key={warning} className="text-[10px] leading-tight text-amber-400/90">{warning}</p>
+                            ))}
+                            {subtitlePreview.map((cue, i) => (
+                              <p key={i} className="mt-0.5 truncate text-[10px] text-white/50">
+                                {Math.floor(cue.start / 60)}:{String(Math.floor(cue.start % 60)).padStart(2, "0")} · {cue.text}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {subtitles.length > 0 && (
@@ -1229,7 +1317,8 @@ function PlayerPage() {
                           {subtitles.map((sub) => (
                             <div key={sub.id} className="flex items-center gap-2 text-[11px] text-white/60">
                               <span className="min-w-0 flex-1 truncate">
-                                {sub.label} <span className="text-white/35">({sub.source})</span>
+                                {languageLabel(sub.lang)}{sub.label !== languageLabel(sub.lang) && ` · ${sub.label}`}{" "}
+                                <span className="text-white/35">({sub.source}{sub.offset !== 0 || sub.scale !== 1 ? `, ${sub.offset.toFixed(1)}s ${sub.scale.toFixed(3)}×` : ""})</span>
                               </span>
                               {sub.isOwner && (
                                 <button

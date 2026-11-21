@@ -125,11 +125,25 @@ node .output/server/index.mjs
 
 `/api/release-notifications-cron` requires `Authorization: Bearer $CRON_SECRET` (also accepts the legacy Vercel cron headers). Keep the existing GitHub Actions workflow (`.github/workflows/release-notifications.yml`) and set the `CRON_SECRET` secret plus the `SITE_URL` variable, or point any external scheduler at that endpoint.
 
+## Playback servers
+
+Two embed providers are configured in `src/routes/_authenticated/watch.$id.tsx`: **VSEmbed** (default) and **2Embed** (fallback). They were selected after probing all previously configured providers for reachability and latency; others either timed out, failed DNS, or hid behind JavaScript redirects/anti-bot pages. The Settings menu probes both and switches to the live one automatically. None of the embed templates expose an external subtitle/language parameter, so subtitle control stays in the app.
+
 ## Subtitles
 
 Subtitles are stored per media id (`<tmdbId>` or `tv-<tmdbId>`) in the `subtitles` collection. Uploaded/URL subtitles are fetched and normalized to WebVTT on the server, then served from `/api/subtitles/<id>` with `text/vtt`. On the watch page, open Settings → Subtitles to add/remove tracks or adjust timing. Owners may remove their own tracks; everyone can use any track for that title.
 
-Third-party embed players don't expose playback time. When an embed cannot report progress, the watch page shows a small **Subtitle clock** — start it when the movie starts and use the ±5s timing offset to line cues up. Direct video sources use native `<track>` elements and need no manual clock.
+Tracks are sorted with **Bahasa Indonesia first, English second**, and that order is also the automatic selection when no explicit choice was saved. Language codes `id/ids/ind/in` and `en/eng/en-us` are normalized. The upload form defaults to `id / Bahasa Indonesia`.
+
+Timing is stored **per track** in MongoDB (an old global localStorage offset is migrated once on first load). Besides ±0.5/1/5s offsets, the watch page offers:
+
+- **Sinkron di sini** — press when a known line is spoken; the nearest cue is aligned to the current time.
+- **Titik A / Titik B** — two anchors compute a speed-correction factor (0.9–1.1×) for slight playback drift or framerate differences.
+- **Reset drift** — returns the scale to 1.000× while keeping cues aligned.
+
+Uploaded files are validated before saving (cue order, zero-length cues, and a short preview of the first three cues).
+
+Third-party embed players don't expose playback time. When an embed cannot report progress, the watch page shows a small **Subtitle clock** — start it when the movie starts, then use **Sinkron di sini** or the timing offset. Direct video sources use native `<track>` elements and need no manual clock.
 
 ## Desktop & mobile
 
