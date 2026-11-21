@@ -4,22 +4,64 @@ import type { Movie } from "../types";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const IMG_BASE = "https://image.tmdb.org/t/p/";
 
-const CACHE = new Map<string, { data: any; expiry: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+type CacheEntry = { data: any; expiresAt: number };
 
-function cacheGet(key: string): any | undefined {
+const CACHE = new Map<string, CacheEntry>();
+const INFLIGHT = new Map<string, Promise<any>>();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const NEGATIVE_TTL = 2 * 60 * 1000; // do not hammer a failing endpoint
+const MAX_CACHE_ENTRIES = 500;
+const EMPTY_RESULT = { results: [], genres: [] };
+
+function cacheGet(key: string): { hit: boolean; stale: boolean; data?: any } {
   const entry = CACHE.get(key);
-  if (!entry) return undefined;
-  if (Date.now() > entry.expiry) { CACHE.delete(key); return undefined; }
-  return entry.data;
+  if (!entry) return { hit: false, stale: false };
+
+  // Refresh LRU order on every access.
+  CACHE.delete(key);
+  CACHE.set(key, entry);
+
+  if (Date.now() < entry.expiresAt) return { hit: true, stale: false, data: entry.data };
+  return { hit: true, stale: true, data: entry.data };
 }
 
-function cacheSet(key: string, data: any) {
-  if (CACHE.size > 200) {
+function cacheSet(key: string, data: any, ttl = CACHE_TTL) {
+  CACHE.delete(key);
+  CACHE.set(key, { data, expiresAt: Date.now() + ttl });
+
+  if (CACHE.size > MAX_CACHE_ENTRIES) {
     const oldest = CACHE.keys().next().value;
     if (oldest !== undefined) CACHE.delete(oldest);
   }
-  CACHE.set(key, { data, expiry: Date.now() + CACHE_TTL });
+}
+
+/** Dedupe concurrent requests for the exact same URL. */
+function refresh(key: string, url: URL, path: string): Promise<any> {
+  const pending = INFLIGHT.get(key);
+  if (pending) return pending;
+
+  const task = (async () => {
+    try {
+      const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8_000) });
+      if (!res.ok) {
+        console.warn(`TMDB error ${res.status} for ${path}`);
+        cacheSet(key, EMPTY_RESULT, NEGATIVE_TTL);
+        return EMPTY_RESULT;
+      }
+      const data = await res.json();
+      cacheSet(key, data);
+      return data;
+    } catch (err) {
+      console.warn(`TMDB fetch failed for ${path}:`, err);
+      cacheSet(key, EMPTY_RESULT, NEGATIVE_TTL);
+      return EMPTY_RESULT;
+    } finally {
+      INFLIGHT.delete(key);
+    }
+  })();
+
+  INFLIGHT.set(key, task);
+  return task;
 }
 
 export async function tmdbFetch(path: string, params: Record<string, string> = {}) {
@@ -33,22 +75,37 @@ export async function tmdbFetch(path: string, params: Record<string, string> = {
 
   const cacheKey = url.toString();
   const cached = cacheGet(cacheKey);
-  if (cached) return cached;
+  if (cached.hit && !cached.stale) return cached.data;
 
-  try {
-    const res = await fetch(url.toString());
-    if (!res.ok) {
-      console.warn(`TMDB error ${res.status} for ${path}`);
-      return { results: [], genres: [] };
-    }
-    const data = await res.json();
-    cacheSet(cacheKey, data);
-    return data;
-  } catch (err) {
-    console.warn(`TMDB fetch failed for ${path}:`, err);
-    return { results: [], genres: [] };
+  if (cached.hit && cached.stale) {
+    // Stale-while-revalidate: serve cached data now, refresh in the background.
+    void refresh(cacheKey, url, path);
+    return cached.data;
   }
+
+  return refresh(cacheKey, url, path);
 }
+
+const HOT_PATHS: Array<[string, Record<string, string>]> = [
+  ["/trending/all/week", {}],
+  ["/trending/movie/week", {}],
+  ["/movie/popular", {}],
+  ["/movie/now_playing", {}],
+  ["/movie/top_rated", {}],
+  ["/tv/popular", {}],
+  ["/genre/movie/list", {}],
+];
+
+let warmupStarted = false;
+
+/** Fire-and-forget warmup for the most requested catalog endpoints. */
+export function warmTmdbCache() {
+  if (warmupStarted) return;
+  warmupStarted = true;
+  void Promise.allSettled(HOT_PATHS.map(([path, params]) => tmdbFetch(path, params)));
+}
+
+if (typeof window === "undefined") warmTmdbCache();
 
 export async function fetchMovieVideosData(id: string): Promise<string | null> {
   const data = await tmdbFetch(`/movie/${id.replace(/^tv-/, "")}/videos`);

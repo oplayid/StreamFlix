@@ -106,12 +106,14 @@ Put the public key in both `VITE_WEB_PUSH_PUBLIC_KEY` (build arg) and `WEB_PUSH_
 
 ## Docker / GitHub Actions / Coolify
 
-1. Push to `main`. `.github/workflows/docker-publish.yml` builds and pushes `ghcr.io/<owner>/<repo>:latest` (plus a short-SHA tag) using `GITHUB_TOKEN`.
-2. Configure the Actions **Variables** (public): `VITE_SITE_URL`, `VITE_TURNSTILE_SITE_KEY`, `VITE_WEB_PUSH_PUBLIC_KEY`.
-3. Configure the Actions **Secrets**: `TMDB_API_KEY` (falls back to variable `VITE_TMDB_API_KEY`).
+1. Push to `main`. `.github/workflows/docker-publish.yml` builds and pushes `ghcr.io/<owner>/<repo>:latest` (plus a short-SHA tag) using a PAT stored in `CR_PAT` with `write:packages`. The default `GITHUB_TOKEN` cannot write to an existing GHCR package that was created with a PAT.
+2. Configure the Actions **Variables** (public): `VITE_SITE_URL`, `SITE_URL`, `VITE_TURNSTILE_SITE_KEY`, `VITE_WEB_PUSH_PUBLIC_KEY`.
+3. Configure the Actions **Secrets**: `TMDB_API_KEY` (falls back to variable `VITE_TMDB_API_KEY`), `CRON_SECRET`, `WAYBACK_ARCHIVE_KEY`.
 4. In Coolify, create a new **Docker Image** service pointing at `ghcr.io/<owner>/<repo>:latest`. If the image is private, add a registry token with `read:packages`.
 5. Set all runtime variables from the table above in Coolify, then deploy.
 6. Health-check: `GET /api/auth/me` returns `{"user":null}` when logged out and the user object when logged in.
+
+TMDB responses are cached in-process for 30 minutes with request deduplication and stale-while-revalidate, so navigation stays fast after the first load. A cold start may take a moment while the hot catalog endpoints are warmed in the background.
 
 The Dockerfile is multi-stage: dependencies are installed with `npm ci`, Vite builds with the `VITE_*` args, and the final image contains only `.output`, `node_modules`, and `package.json`, running:
 

@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { AuthUser } from "./auth";
 
 export type { AuthUser };
@@ -23,7 +23,8 @@ export function useSession() {
   const query = useQuery({
     queryKey: ["sf", "session"],
     queryFn: () => getSession(),
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
     retry: false,
   });
   return {

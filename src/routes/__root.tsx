@@ -4,7 +4,6 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
-  useLocation,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -17,7 +16,7 @@ import { CookieConsent } from "@/components/streamflix/CookieConsent";
 import { CustomTitleBar } from "@/components/streamflix/CustomTitleBar";
 import { GlobalContextMenu } from "@/components/streamflix/GlobalContextMenu";
 import { ScreenSaver } from "@/components/streamflix/ScreenSaver";
-import { getSession } from "@/lib/session";
+import { getSession, type AuthUser } from "@/lib/session";
 import { metaImageUrl } from "@/lib/seo";
 import { useNavTracker } from "@/lib/nav-history";
 import { Analytics } from "@vercel/analytics/react";
@@ -179,17 +178,14 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
-  const initial = useRef(true);
+  const lastUserId = useRef<string | null | undefined>(undefined);
   const photoSaved = useRef<string | null>(null);
   const offlineRoute = "/offline";
 
   useNavTracker();
 
-  // Scroll to top on route changes.
-  const pathname = useLocation().pathname;
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
+  // Scroll position is handled by the router's scrollRestoration. Overriding it
+  // here used to fight with back/forward navigation and cause visible jumps.
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.electronAPI) {
@@ -219,17 +215,28 @@ function RootComponent() {
     };
     document.addEventListener("click", handleExternalLink, true);
 
-    getSession()
-      .then((user) => {
+    queryClient
+      .fetchQuery({
+        queryKey: ["sf", "session"],
+        queryFn: () => getSession(),
+        staleTime: 5 * 60_000,
+      })
+      .then((user: AuthUser | null) => {
         try {
           if (user) localStorage.setItem("sf:auth", "1");
           else localStorage.removeItem("sf:auth");
         } catch {}
-        if (initial.current) {
-          initial.current = false;
-        } else {
+
+        const id = user?.id ?? null;
+        if (lastUserId.current === undefined) {
+          lastUserId.current = id;
+          return;
+        }
+        // Only refresh route data when the identity actually changes.
+        if (lastUserId.current !== id) {
+          lastUserId.current = id;
           router.invalidate();
-          queryClient.invalidateQueries();
+          queryClient.invalidateQueries({ queryKey: ["sf", "session"] });
         }
       })
       .catch(() => {});
