@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Logo } from "@/components/streamflix/Logo";
-import { ContactEmail } from "@/components/streamflix/ContactEmail";
 
 export const Route = createFileRoute("/tos")({
   head: () => ({
@@ -149,9 +148,7 @@ function TermsOfServicePage() {
         <section className="space-y-2 sm:space-y-4">
           <h2 className="text-base sm:text-2xl font-semibold">Contact Information</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            If you have any questions about these Terms, please email us at{" "}
-            <ContactEmail className="text-primary hover:underline" />
-            .
+            If you have any questions about these Terms, please reach out through the official OPLAY.ID channels.
           </p>
         </section>
       </div>

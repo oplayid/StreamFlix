@@ -1,7 +1,4 @@
-import { Download, Mail, Instagram } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { isInApp } from "@/lib/app-downloads";
-import { ContactEmail } from "@/components/streamflix/ContactEmail";
 
 export function Footer() {
   return (
@@ -11,34 +8,12 @@ export function Footer() {
           Made by OPLAY.ID
         </p>
         <nav className="flex flex-wrap items-center justify-center gap-x-4 gap-y-3 text-xs text-muted-foreground sm:justify-end">
-          <ContactEmail className="inline-flex items-center gap-1.5 transition hover:text-foreground">
-            <Mail className="size-4" />
-          </ContactEmail>
-          <a
-            href="https://instagram.com/itiswayneee"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 transition hover:text-foreground"
-          >
-            <Instagram className="size-4" /> @itiswayneee
-          </a>
           <Link to="/tos" className="hover:text-foreground">
             Terms of Service
           </Link>
           <Link to="/privacy-policy" className="hover:text-foreground">
             Privacy Policy
           </Link>
-          {!isInApp() && (
-            <a
-              href="https://github.com/oplayid/StreamFlix/releases"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/20"
-            >
-              <Download className="size-3.5" />
-              Download the app
-            </a>
-          )}
         </nav>
       </div>
     </footer>

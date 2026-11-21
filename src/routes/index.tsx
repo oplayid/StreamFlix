@@ -1,9 +1,7 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useState, useRef } from "react";
-import { ChevronRight, Play, ChevronDown, Mail, Instagram, Tv, Smartphone, Monitor, Shield, Zap, Globe, ChevronLeft, Download, Github } from "lucide-react";
+import { ChevronRight, Play, ChevronDown, Tv, Smartphone, Monitor, Shield, Zap, Globe, ChevronLeft } from "lucide-react";
 import { Logo } from "@/components/streamflix/Logo";
-import { ContactEmail } from "@/components/streamflix/ContactEmail";
-import { isInApp } from "@/lib/app-downloads";
 import { tmdbFetch, toMovie } from "@/lib/api/tmdb.server";
 import type { Movie } from "@/lib/types";
 import heroImg from "@/assets/landing.jpg";
@@ -101,15 +99,6 @@ function Landing() {
           <header className="flex items-center justify-between px-4 sm:px-12 py-5">
             <Logo className="[&>span]:text-3xl [&>span]:sm:text-5xl" />
             <div className="flex items-center gap-3">
-              <a
-                href="https://github.com/oplayid/StreamFlix"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                title="GitHub"
-              >
-                <Github className="size-5" />
-              </a>
               <Link
                 to="/auth"
                 className="rounded-md bg-primary px-4 sm:px-6 py-2 sm:py-2.5 text-sm sm:text-base font-semibold text-primary-foreground hover:bg-primary/90 mr-0 sm:mr-12"
@@ -133,16 +122,6 @@ function Landing() {
               >
                 <Play className="size-5 fill-current" /> Start Watching
               </Link>
-              {!isInApp() && (
-                <a
-                  href="https://github.com/oplayid/StreamFlix/releases"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-6 py-3 text-base font-semibold text-primary hover:bg-primary/20 transition-colors"
-                >
-                  <Download className="size-5" /> Download the App
-                </a>
-              )}
             </div>
           </div>
         </div>
@@ -174,7 +153,7 @@ function Landing() {
                   </span>
                   <Link
                     to="/browse"
-                    className="block overflow-hidden rounded-lg relative transition-shadow duration-300 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.5)]"
+                    className="block overflow-hidden rounded-lg relative transition-shadow duration-300 group-hover:shadow-[0_0_20px_rgba(252,194,23,0.35)]"
                   >
                     <img
                       src={m.poster || "/placeholder.svg"}
@@ -248,8 +227,8 @@ function Landing() {
             />
             <FeatureCard
               icon={<Smartphone className="size-6" />}
-              title="Mobile Apps"
-              description="Download the Android app for a native experience with offline support and notifications."
+              title="Web App & PWA"
+              description="Use OPLAY.ID directly in your browser, or install it as a PWA for a fast, app-like experience on any device."
             />
           </div>
         </div>
@@ -288,25 +267,6 @@ function Landing() {
         <div className="mx-auto max-w-6xl text-center">
           <p className="font-medium text-foreground">OPLAY.ID — Free for everyone.</p>
           <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-            <ContactEmail className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors">
-              <Mail className="size-4" />
-            </ContactEmail>
-            <a
-              href="https://instagram.com/itiswayneee"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
-            >
-              <Instagram className="size-4" /> @itiswayneee
-            </a>
-            <a
-              href="https://github.com/oplayid/StreamFlix"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
-            >
-              <Github className="size-4" /> GitHub
-            </a>
             <Link to="/tos" className="hover:text-foreground transition-colors">
               Terms of Service
             </Link>

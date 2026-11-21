@@ -601,7 +601,7 @@ function MoviePage() {
                         search={movie.directorId ? undefined : { q: movie.director, tab: "people" }}
                         className="group z-10 w-20 shrink-0 text-center transition-transform duration-300 ease-out hover:z-20 hover:scale-110 sm:w-24"
                       >
-                        <div className="aspect-square w-full overflow-hidden rounded-xl bg-surface ring-1 ring-red-500/70 transition-shadow duration-300 group-hover:shadow-2xl group-hover:ring-2">
+                        <div className="aspect-square w-full overflow-hidden rounded-xl bg-surface ring-1 ring-primary/70 transition-shadow duration-300 group-hover:shadow-2xl group-hover:ring-2">
                           {movie.directorPfp ? (
                             <img
                               src={movie.directorPfp}

@@ -8,7 +8,7 @@ export type SubtitleTrack = {
   mediaId: string;
   lang: string;
   label: string;
-  source: "upload" | "url";
+  source: "upload" | "url" | "subdl";
   origin?: string;
   url: string;
   content: string;
@@ -26,8 +26,9 @@ type SubtitleDoc = {
   userId: string | null;
   lang: string;
   label: string;
-  source: "upload" | "url";
+  source: "upload" | "url" | "subdl";
   origin?: string;
+  externalId?: string;
   content: string;
   offset?: number;
   scale?: number;
@@ -35,12 +36,17 @@ type SubtitleDoc = {
 };
 
 const MAX_SUBTITLE_BYTES = 2 * 1024 * 1024;
-const mediaIdSchema = z.string().min(1).max(100).regex(/^(tv-)?\d+$/);
+const mediaIdSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^(tv-)?\d+$/);
 
 /** Indonesian is preferred, then English, then any other language. */
 export function normalizeLang(lang: string): string {
   const value = lang.trim().toLowerCase();
-  if (["id", "ids", "ind", "in", "id-id", "indonesia", "bahasa indonesia"].includes(value)) return "id";
+  if (["id", "ids", "ind", "in", "id-id", "indonesia", "bahasa indonesia"].includes(value))
+    return "id";
   if (["en", "eng", "en-us", "en-gb", "english"].includes(value)) return "en";
   return value;
 }
@@ -71,7 +77,10 @@ export function pickInitialSubtitle(tracks: SubtitleTrack[], saved: string | nul
 
 /** Convert Common Subtitle Format (.srt) into WebVTT. VTT is passed through. */
 export function toWebVtt(input: string): string {
-  const text = input.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
+  const text = input
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
   if (!text) throw new Error("Subtitle file is empty");
   if (text.length > MAX_SUBTITLE_BYTES) throw new Error("Subtitle file is too large (max 2 MB)");
 
@@ -86,9 +95,7 @@ export function toWebVtt(input: string): string {
     if (lines.length === 0) continue;
     const timeIndex = lines.findIndex((line) => line.includes("-->"));
     if (timeIndex < 0) continue;
-    const times = lines[timeIndex]
-      .replace(/\s*-->\s*/, " --> ")
-      .replace(/(\d),(\d{3})/g, "$1.$2");
+    const times = lines[timeIndex].replace(/\s*-->\s*/, " --> ").replace(/(\d),(\d{3})/g, "$1.$2");
     const payload = lines.slice(timeIndex + 1).join("\n");
     cues.push(`${times}\n${payload}`.trim());
   }
@@ -138,12 +145,14 @@ const readTracks = createServerFn({ method: "GET" })
   });
 
 const createUpload = createServerFn({ method: "POST" })
-  .validator(z.object({
-    mediaId: mediaIdSchema,
-    lang: z.string().min(2).max(20),
-    label: z.string().min(1).max(60),
-    content: z.string().min(1),
-  }))
+  .validator(
+    z.object({
+      mediaId: mediaIdSchema,
+      lang: z.string().min(2).max(20),
+      label: z.string().min(1).max(60),
+      content: z.string().min(1),
+    }),
+  )
   .handler(async ({ data }): Promise<SubtitleTrack> => {
     const { requireUser } = await import("./auth");
     const user = await requireUser();
@@ -164,17 +173,20 @@ const createUpload = createServerFn({ method: "POST" })
   });
 
 const createFromUrl = createServerFn({ method: "POST" })
-  .validator(z.object({
-    mediaId: mediaIdSchema,
-    lang: z.string().min(2).max(20),
-    label: z.string().min(1).max(60),
-    url: z.string().url().max(2000),
-  }))
+  .validator(
+    z.object({
+      mediaId: mediaIdSchema,
+      lang: z.string().min(2).max(20),
+      label: z.string().min(1).max(60),
+      url: z.string().url().max(2000),
+    }),
+  )
   .handler(async ({ data }): Promise<SubtitleTrack> => {
     const { requireUser } = await import("./auth");
     const user = await requireUser();
     const parsed = new URL(data.url);
-    if (!/^https?:$/.test(parsed.protocol)) throw new Error("Only http(s) subtitle URLs are allowed");
+    if (!/^https?:$/.test(parsed.protocol))
+      throw new Error("Only http(s) subtitle URLs are allowed");
 
     const res = await fetch(parsed, {
       headers: { "User-Agent": "OPLAY.ID-Subtitle-Fetch/1.0", Accept: "*/*" },
@@ -209,11 +221,13 @@ const removeTrack = createServerFn({ method: "POST" })
   });
 
 const updateTiming = createServerFn({ method: "POST" })
-  .validator(z.object({
-    id: z.string().min(1),
-    offset: z.number().min(-600).max(600),
-    scale: z.number().min(0.9).max(1.1),
-  }))
+  .validator(
+    z.object({
+      id: z.string().min(1),
+      offset: z.number().min(-600).max(600),
+      scale: z.number().min(0.9).max(1.1),
+    }),
+  )
   .handler(async ({ data }) => {
     const { requireUser } = await import("./auth");
     const user = await requireUser();
@@ -221,10 +235,7 @@ const updateTiming = createServerFn({ method: "POST" })
     const doc = await col.findOne({ _id: data.id });
     if (!doc) throw new Error("Subtitle not found");
     if (doc.userId !== user.id) throw new Error("You can only adjust subtitles you added");
-    await col.updateOne(
-      { _id: data.id },
-      { $set: { offset: data.offset, scale: data.scale } },
-    );
+    await col.updateOne({ _id: data.id }, { $set: { offset: data.offset, scale: data.scale } });
   });
 
 export function listSubtitles(mediaId: string): Promise<SubtitleTrack[]> {
@@ -261,6 +272,221 @@ export function updateSubtitleTiming(input: {
   return updateTiming({ data: input });
 }
 
+export type SubdlSubtitleResult = {
+  id: string;
+  lang: string;
+  label: string;
+  releaseName: string;
+  author?: string;
+  hi: boolean;
+  downloadPath: string;
+  format: string;
+};
+
+type SubdlApiSubtitle = {
+  release_name?: string;
+  name?: string;
+  lang?: string;
+  language?: string;
+  author?: string;
+  url?: string;
+  hi?: boolean;
+  season?: number | null;
+  episode?: number | null;
+  full_season?: boolean;
+  episode_from?: number | null;
+  episode_end?: number | null;
+  unpack_files?: Array<{
+    file_n_id?: string;
+    name?: string;
+    release_name?: string;
+    season?: number;
+    episode?: number;
+    language?: string;
+    hi?: boolean;
+    format?: string;
+    url?: string;
+  }>;
+};
+
+type SubdlApiResponse = {
+  status?: boolean;
+  error?: string;
+  message?: string;
+  subtitles?: SubdlApiSubtitle[];
+};
+
+function subdlApiKey(): string {
+  const key = process.env.SUBDL_API_KEY?.trim();
+  if (!key) throw new Error("SUBDL_API_KEY belum dikonfigurasi di server");
+  return key;
+}
+
+function sanitizeSubdlPath(path: string): string {
+  const clean = path.split("?")[0]?.trim() ?? "";
+  if (!/^\/subtitle\/[A-Za-z0-9/_-]+$/.test(clean)) {
+    throw new Error("Path subtitle SubDL tidak valid");
+  }
+  return clean;
+}
+
+function mediaToSubdlQuery(mediaId: string, season?: number, episode?: number) {
+  const isTv = mediaId.startsWith("tv-");
+  const tmdbId = Number(mediaId.replace(/^tv-/, ""));
+  if (!Number.isFinite(tmdbId) || tmdbId <= 0) throw new Error("mediaId tidak valid");
+  return {
+    tmdbId: String(tmdbId),
+    type: isTv ? "tv" : "movie",
+    season: isTv && typeof season === "number" ? season : undefined,
+    episode: isTv && typeof episode === "number" ? episode : undefined,
+  };
+}
+
+const searchSubdl = createServerFn({ method: "GET" })
+  .validator(
+    z.object({
+      mediaId: mediaIdSchema,
+      season: z.number().int().min(0).optional(),
+      episode: z.number().int().min(0).optional(),
+      languages: z.string().max(50).optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<SubdlSubtitleResult[]> => {
+    const apiKey = subdlApiKey();
+    const q = mediaToSubdlQuery(data.mediaId, data.season, data.episode);
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      tmdb_id: q.tmdbId,
+      type: q.type,
+      languages: data.languages?.trim() || "ID,EN",
+      subs_per_page: "30",
+      unpack: "1",
+    });
+    if (q.type === "tv" && typeof q.season === "number")
+      params.set("season_number", String(q.season));
+    if (q.type === "tv" && typeof q.episode === "number")
+      params.set("episode_number", String(q.episode));
+
+    const res = await fetch(`https://api.subdl.com/api/v1/subtitles?${params.toString()}`, {
+      headers: { Accept: "application/json", "User-Agent": "OPLAY.ID-SubDL/1.0" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`SubDL API error ${res.status}`);
+    const json = (await res.json()) as SubdlApiResponse;
+    if (!json.status) {
+      const msg = json.error || json.message || "SubDL tidak mengembalikan hasil";
+      if (/can't find|not found/i.test(msg)) return [];
+      throw new Error(msg);
+    }
+
+    const out: SubdlSubtitleResult[] = [];
+    for (const sub of json.subtitles ?? []) {
+      const files = sub.unpack_files?.length ? sub.unpack_files : [];
+      for (const file of files) {
+        const rawPath = file.url || sub.url;
+        if (!rawPath) continue;
+        let downloadPath: string;
+        try {
+          downloadPath = sanitizeSubdlPath(rawPath);
+        } catch {
+          continue;
+        }
+        const langCode = normalizeLang(file.language || sub.language || sub.lang || "en");
+        const hi = !!(file.hi ?? sub.hi);
+        const releaseName =
+          file.release_name || file.name || sub.release_name || sub.name || "Subtitle";
+        out.push({
+          id: `${downloadPath}:${langCode}:${hi ? "hi" : "n"}`,
+          lang: langCode,
+          label: `${languageLabel(langCode)}${hi ? " (HI)" : ""} · ${releaseName}`.slice(0, 120),
+          releaseName,
+          author: sub.author,
+          hi,
+          downloadPath,
+          format: (file.format || "srt").toLowerCase(),
+        });
+      }
+    }
+
+    const seen = new Set<string>();
+    return out
+      .filter((item) => {
+        const key = item.downloadPath;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 40);
+  });
+
+const importSubdl = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      mediaId: mediaIdSchema,
+      lang: z.string().min(2).max(20),
+      label: z.string().min(1).max(120),
+      downloadPath: z.string().min(1).max(500),
+      releaseName: z.string().max(200).optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<SubtitleTrack> => {
+    const { requireUser } = await import("./auth");
+    const user = await requireUser();
+    const apiKey = subdlApiKey();
+    const downloadPath = sanitizeSubdlPath(data.downloadPath);
+
+    const col = await collection<SubtitleDoc>("subtitles");
+    const existing = await col.findOne({
+      mediaId: data.mediaId,
+      externalId: `subdl:${downloadPath}`,
+    });
+    if (existing) return publicTrack(existing, user.id);
+
+    const dlUrl = new URL(`https://dl.subdl.com${downloadPath}`);
+    dlUrl.searchParams.set("api_key", apiKey);
+    const res = await fetch(dlUrl, {
+      headers: { "User-Agent": "OPLAY.ID-SubDL/1.0", Accept: "*/*" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`SubDL download gagal (${res.status})`);
+    const raw = await res.text();
+    const content = toWebVtt(raw);
+
+    const doc: SubtitleDoc = {
+      _id: randomUUID(),
+      mediaId: data.mediaId,
+      userId: user.id,
+      lang: normalizeLang(data.lang),
+      label: data.label.slice(0, 60),
+      source: "subdl",
+      origin: "subdl.com",
+      externalId: `subdl:${downloadPath}`,
+      content,
+      createdAt: now(),
+    };
+    await col.insertOne(doc);
+    return publicTrack(doc, user.id);
+  });
+
+export function searchSubdlSubtitles(input: {
+  mediaId: string;
+  season?: number;
+  episode?: number;
+  languages?: string;
+}): Promise<SubdlSubtitleResult[]> {
+  return searchSubdl({ data: input });
+}
+
+export function importSubdlSubtitle(input: {
+  mediaId: string;
+  lang: string;
+  label: string;
+  downloadPath: string;
+  releaseName?: string;
+}): Promise<SubtitleTrack> {
+  return importSubdl({ data: input });
+}
+
 /** Client-side WebVTT cue parser used for the embed overlay. */
 export type SubtitleCue = { start: number; end: number; text: string };
 
@@ -281,7 +507,10 @@ export function parseVttCues(content: string): SubtitleCue[] {
     const start = parseTimestamp(startRaw ?? "");
     const end = parseTimestamp((endRaw ?? "").split(/\s+/)[0] ?? "");
     if (!isFinite(start) || !isFinite(end)) continue;
-    const text = lines.slice(timeIndex + 1).join("\n").trim();
+    const text = lines
+      .slice(timeIndex + 1)
+      .join("\n")
+      .trim();
     if (text) cues.push({ start, end, text });
   }
   return cues;
@@ -306,7 +535,8 @@ export function validateSubtitle(content: string): SubtitleValidation {
     warnings.push("Ada cue dengan durasi nol atau negatif.");
   }
   const lastEnd = Math.max(...cues.map((cue) => cue.end));
-  if (lastEnd > 24 * 3600) warnings.push("Durasi subtitle lebih dari 24 jam — periksa kembali file-nya.");
+  if (lastEnd > 24 * 3600)
+    warnings.push("Durasi subtitle lebih dari 24 jam — periksa kembali file-nya.");
 
   return { cues, warnings };
 }

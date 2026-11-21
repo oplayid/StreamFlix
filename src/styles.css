@@ -41,8 +41,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.21 0.005 270);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.58 0.22 27);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.843 0.169 86.2);
+  --primary-foreground: oklch(0.19 0.005 270);
   --secondary: oklch(0.26 0.005 270);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.26 0.005 270);
@@ -53,7 +53,7 @@
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(1 0 0 / 8%);
   --input: oklch(1 0 0 / 10%);
-  --ring: oklch(0.58 0.22 27);
+  --ring: oklch(0.843 0.169 86.2);
 }
 
 .dark {
@@ -228,7 +228,7 @@ input[type="range"]::-moz-range-thumb {
 input[type="range"]::-moz-range-progress {
   height: 4px;
   border-radius: 2px;
-  background: #dc2626;
+  background: #FCC217;
 }
 .volume-slider::-webkit-slider-runnable-track {
   height: 4px;
@@ -280,7 +280,7 @@ body.electron-app .min-h-screen {
   transition: all 0.3s ease;
 }
 .group:hover .rank-badge {
-  -webkit-text-stroke: 3px #ef4444;
+  -webkit-text-stroke: 3px #FCC217;
   -webkit-text-fill-color: transparent;
 }
 @media (prefers-reduced-motion: reduce) {

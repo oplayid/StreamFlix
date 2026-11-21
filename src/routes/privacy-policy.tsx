@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Logo } from "@/components/streamflix/Logo";
-import { ContactEmail } from "@/components/streamflix/ContactEmail";
 
 export const Route = createFileRoute("/privacy-policy")({
   head: () => ({
@@ -125,9 +124,7 @@ function PrivacyPolicyPage() {
           <p className="text-sm leading-relaxed text-muted-foreground">
             Depending on your jurisdiction, you may have the right to access, correct, delete, or
             port your personal data. You can manage your cookie preferences through your browser
-            settings. To exercise your rights, please email us at{" "}
-            <ContactEmail className="text-primary hover:underline" />
-            .
+            settings. To exercise your rights, please reach out through the official OPLAY.ID channels.
           </p>
         </section>
 
@@ -171,9 +168,7 @@ function PrivacyPolicyPage() {
           <h2 className="text-base sm:text-2xl font-semibold">Contact Us</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
             If you have questions or concerns about this Privacy Policy or your data, please reach
-            out to{" "}
-            <ContactEmail className="text-primary hover:underline" />
-            .
+            out through the official OPLAY.ID channels.
           </p>
         </section>
       </div>

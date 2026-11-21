@@ -60,11 +60,6 @@ async function main() {
     priority: "1.0",
   });
   urls.push({
-    loc: `${SITE_URL}/download`,
-    changefreq: "monthly",
-    priority: "0.5",
-  });
-  urls.push({
     loc: `${SITE_URL}/privacy-policy`,
     changefreq: "yearly",
     priority: "0.3",
