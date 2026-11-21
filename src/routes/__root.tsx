@@ -85,19 +85,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "StreamFlix" },
+      { title: "OPLAY.ID" },
       { name: "description", content: "Unlimited movies, TV shows, and more" },
       { name: "theme-color", content: "#E50914" },
       { name: "mobile-web-app-capable", content: "yes" },
-      { property: "og:title", content: "StreamFlix" },
+      { property: "og:title", content: "OPLAY.ID" },
       { property: "og:description", content: "Unlimited movies, TV shows, and more" },
       { property: "og:type", content: "website" },
-      { property: "og:site_name", content: "StreamFlix" },
+      { property: "og:site_name", content: "OPLAY.ID" },
       { property: "og:image", content: metaImageUrl() },
       { property: "og:image:width", content: "1101" },
       { property: "og:image:height", content: "1101" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "StreamFlix" },
+      { name: "twitter:title", content: "OPLAY.ID" },
       { name: "twitter:description", content: "Unlimited movies, TV shows, and more" },
       { name: "twitter:image", content: metaImageUrl() },
     ],
@@ -108,9 +108,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         as: "style",
       },
       { rel: "manifest", href: "/manifest.json" },
-      { rel: "preconnect", href: "https://firestore.googleapis.com" },
-      { rel: "preconnect", href: "https://identitytoolkit.googleapis.com" },
-      { rel: "preconnect", href: "https://securetoken.googleapis.com" },
       { rel: "preconnect", href: "https://image.tmdb.org" },
       { rel: "preconnect", href: "https://www.googletagmanager.com" },
       { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
@@ -148,10 +145,10 @@ function RootShell({ children }: { children: ReactNode }) {
           });
           (function () {
             var c = null;
-            try { c = localStorage.getItem('streamflix:cookieConsent') || null; } catch (e) {}
+            try { c = localStorage.getItem('oplayid:cookieConsent') || localStorage.getItem('streamflix:cookieConsent') || null; } catch (e) {}
             if (!c) {
               try {
-                var m = document.cookie.match(/(?:^|; )streamflix_cookie_consent=([^;]+)/);
+                var m = document.cookie.match(/(?:^|; )(?:oplayid_cookie_consent|streamflix_cookie_consent)=([^;]+)/);
                 c = m ? m[1] : null;
               } catch (e) {}
             }

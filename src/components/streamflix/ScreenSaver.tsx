@@ -13,7 +13,7 @@ const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 if (typeof window !== "undefined" && import.meta.env.DEV) {
   (window as any).__activateScreensaver = () => {
     // Dispatch custom event that ScreenSaver listens for
-    window.dispatchEvent(new CustomEvent("streamflix:activate-screensaver"));
+    window.dispatchEvent(new CustomEvent("oplayid:activate-screensaver"));
   };
 }
 
@@ -44,8 +44,8 @@ export function ScreenSaver() {
         setActive(true);
       }
     };
-    window.addEventListener("streamflix:activate-screensaver", handler);
-    return () => window.removeEventListener("streamflix:activate-screensaver", handler);
+    window.addEventListener("oplayid:activate-screensaver", handler);
+    return () => window.removeEventListener("oplayid:activate-screensaver", handler);
   }, [isMobile]);
 
   // Debug activation via console: __activateScreensaver()
@@ -148,9 +148,9 @@ export function ScreenSaver() {
       <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-r from-black/25 via-transparent to-black/35" />
 
-      {/* StreamFlix brand watermark top-left */}
+      {/* OPLAY.ID brand watermark top-left */}
       <div className="absolute top-8 left-8 text-white/50 text-xl font-bold tracking-widest uppercase">
-        StreamFlix
+        OPLAY.ID
       </div>
 
       {/* Title at bottom left, genres below with dots */}

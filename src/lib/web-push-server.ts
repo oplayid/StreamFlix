@@ -63,7 +63,7 @@ export async function sendPushToUsers(
       try {
         await sendNotification(
           { endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } },
-          JSON.stringify(payload),
+          JSON.stringify({ type: "OPLAY_PUSH", ...payload }),
         );
         successCount += 1;
         await col.updateOne({ _id: doc._id }, { $set: { last_seen_at: now() } });

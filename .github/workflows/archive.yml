@@ -21,4 +21,4 @@ jobs:
             -H "x-archive-key: ${{ secrets.WAYBACK_ARCHIVE_KEY }}" \
             -H "User-Agent: vercel-cron"
         env:
-          SITE_URL: ${{ vars.SITE_URL || 'https://streamflix.dpdns.org' }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://movie.oplay.id' }}

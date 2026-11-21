@@ -75,7 +75,7 @@ export const Route = createFileRoute("/_authenticated/browse")({
   loader: async ({ deps }) => {
     return await loadBrowseData(deps.kind as BrowseKind);
   },
-  head: () => ({ meta: [{ title: "Browse — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Browse — OPLAY.ID" }] }),
   component: BrowsePage,
   pendingComponent: BrowseSkeleton,
 });

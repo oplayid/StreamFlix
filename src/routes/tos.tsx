@@ -5,8 +5,8 @@ import { ContactEmail } from "@/components/streamflix/ContactEmail";
 export const Route = createFileRoute("/tos")({
   head: () => ({
     meta: [
-      { title: "Terms of Service — StreamFlix" },
-      { name: "description", content: "StreamFlix Terms of Service." },
+      { title: "Terms of Service — OPLAY.ID" },
+      { name: "description", content: "OPLAY.ID Terms of Service." },
     ],
   }),
   component: TermsOfServicePage,
@@ -29,9 +29,9 @@ function TermsOfServicePage() {
           <p className="text-xs sm:text-sm uppercase tracking-[0.25em] text-muted-foreground">
             Terms of Service
           </p>
-          <h1 className="text-xl sm:text-4xl font-black">Welcome to StreamFlix</h1>
+          <h1 className="text-xl sm:text-4xl font-black">Welcome to OPLAY.ID</h1>
           <p className="text-sm sm:text-base leading-relaxed text-muted-foreground">
-            These Terms of Service ("Terms") govern your access to and use of StreamFlix, including
+            These Terms of Service ("Terms") govern your access to and use of OPLAY.ID, including
             any content, functionality, and services offered through our platform. By accessing or
             using the service, you agree to be bound by these Terms. If you do not agree, you may
             not use the service.
@@ -41,7 +41,7 @@ function TermsOfServicePage() {
         <section className="space-y-2 sm:space-y-4">
           <h2 className="text-base sm:text-2xl font-semibold">Acceptance of Terms</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            By creating an account or using StreamFlix in any way, you acknowledge that you have
+            By creating an account or using OPLAY.ID in any way, you acknowledge that you have
             read, understood, and agree to be bound by these Terms. We reserve the right to update
             or modify these Terms at any time. Your continued use of the service after any changes
             constitutes acceptance of the new Terms.
@@ -61,7 +61,7 @@ function TermsOfServicePage() {
         <section className="space-y-2 sm:space-y-4">
           <h2 className="text-base sm:text-2xl font-semibold">Use of the Service</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            StreamFlix is provided for personal, non-commercial use. The software is open source and
+            OPLAY.ID is provided for personal, non-commercial use. The software is open source and
             licensed under the MIT License, so you're free to use, copy, modify, and share the code.
             When using the service, you agree not to:
           </p>
@@ -90,7 +90,7 @@ function TermsOfServicePage() {
         <section className="space-y-2 sm:space-y-4">
           <h2 className="text-base sm:text-2xl font-semibold">Content and Availability</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Content available through StreamFlix may change at any time. We do not guarantee that
+            Content available through OPLAY.ID may change at any time. We do not guarantee that
             any title will remain accessible or that the service will be available without
             interruption. We are not liable for any loss of content, data, or access resulting from
             service changes, technical failures, or maintenance.
@@ -101,7 +101,7 @@ function TermsOfServicePage() {
           <h2 className="text-base sm:text-2xl font-semibold">Third-Party Links and Services</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
             The service may contain links to third-party websites or services that are not owned or
-            controlled by StreamFlix. We are not responsible for the content, privacy policies, or
+            controlled by OPLAY.ID. We are not responsible for the content, privacy policies, or
             practices of any third-party sites. Your use of third-party services is at your own
             risk.
           </p>
@@ -111,7 +111,7 @@ function TermsOfServicePage() {
           <h2 className="text-base sm:text-2xl font-semibold">Disclaimer of Warranties</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
             The service is provided on an "as is" and "as available" basis without warranties of any
-            kind, either express or implied. StreamFlix disclaims all warranties, including but not
+            kind, either express or implied. OPLAY.ID disclaims all warranties, including but not
             limited to merchantability, fitness for a particular purpose, and non-infringement. We
             do not warrant that the service will be error-free, secure, or uninterrupted.
           </p>
@@ -120,7 +120,7 @@ function TermsOfServicePage() {
         <section className="space-y-2 sm:space-y-4">
           <h2 className="text-base sm:text-2xl font-semibold">Limitation of Liability</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            To the fullest extent permitted by law, StreamFlix and Wayne Inc shall not be liable
+            To the fullest extent permitted by law, OPLAY.ID shall not be liable
             for any indirect, incidental, special, consequential, or punitive damages arising out of
             or related to your use of the service, whether based on warranty, contract, tort, or any
             other legal theory.

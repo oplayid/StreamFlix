@@ -7,6 +7,7 @@ import { Footer } from "@/components/streamflix/Footer";
 import { LazyImage } from "@/components/streamflix/LazyImage";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getWatchHistory, type WatchHistoryItem } from "@/lib/continue-watching";
+import { findMigratedStorageKeys } from "@/lib/storage-migration";
 import {
   getWatchHistoryFromFirestore,
   removeHistoryFromFirestore,
@@ -14,7 +15,7 @@ import {
 } from "@/lib/history-firestore";
 
 export const Route = createFileRoute("/_authenticated/history")({
-  head: () => ({ meta: [{ title: "Watch History — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Watch History — OPLAY.ID" }] }),
   component: HistoryPage,
 });
 
@@ -108,9 +109,7 @@ function HistoryPage() {
 
   const clearAll = () => {
     try {
-      const keys = Object.keys(localStorage).filter((k) =>
-        k.startsWith("streamflix:watch_history"),
-      );
+      const keys = findMigratedStorageKeys("watch_history");
       keys.forEach((k) => localStorage.removeItem(k));
       setHistory([]);
       clearHistoryFromFirestore().catch(() => {});
@@ -119,7 +118,7 @@ function HistoryPage() {
 
   const removeItem = (id: string) => {
     try {
-      const key = Object.keys(localStorage).find((k) => k.startsWith("streamflix:watch_history"));
+      const key = findMigratedStorageKeys("watch_history")[0];
       if (!key) return;
       const raw = localStorage.getItem(key);
       if (!raw) return;
@@ -134,7 +133,7 @@ function HistoryPage() {
 
   const removeEpisode = (id: string) => {
     try {
-      const key = Object.keys(localStorage).find((k) => k.startsWith("streamflix:watch_history"));
+      const key = findMigratedStorageKeys("watch_history")[0];
       if (!key) return;
       const raw = localStorage.getItem(key);
       if (!raw) return;

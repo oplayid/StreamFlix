@@ -2,16 +2,16 @@ export const APP_DOWNLOADS = {
   windows: {
     label: "Windows",
     description: "Desktop app for Windows 10 and 11",
-    file: "StreamFlix-Desktop.exe",
+    file: "OPLAY.ID-Desktop.exe",
     size: "96 MB",
-    url: "/downloads/StreamFlix-Desktop.exe",
+    url: "/downloads/OPLAY.ID-Desktop.exe",
   },
   android: {
     label: "Android",
     description: "Mobile app for Android phones and tablets",
-    file: "StreamFlix-Mobile.apk",
+    file: "OPLAY.ID-Mobile.apk",
     size: "6.7 MB",
-    url: "/downloads/StreamFlix-Mobile.apk",
+    url: "/downloads/OPLAY.ID-Mobile.apk",
   },
 } as const;
 

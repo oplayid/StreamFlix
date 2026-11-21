@@ -4,7 +4,7 @@ import { signOutFn } from "@/lib/session";
 
 export const Route = createFileRoute("/_authenticated/force-password")({
   ssr: false,
-  head: () => ({ meta: [{ title: "Password managed by Pocket ID — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Password managed by OPLAY.ID Passkey — OPLAY.ID" }] }),
   component: ForcePasswordPage,
 });
 
@@ -15,9 +15,9 @@ function ForcePasswordPage() {
     <div className="grid min-h-dvh place-items-center bg-background p-4">
       <div className="w-full max-w-sm rounded-lg border border-border bg-card/40 p-6 text-center">
         <ShieldCheck className="mx-auto mb-3 size-10 text-primary" />
-        <h1 className="text-lg font-semibold">Password managed by Pocket ID</h1>
+        <h1 className="text-lg font-semibold">Password managed by OPLAY.ID Passkey</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          StreamFlix no longer stores passwords. Use Pocket ID to change or reset your password.
+          OPLAY.ID no longer stores passwords. Use OPLAY.ID Passkey to change or reset your password.
         </p>
         <button
           onClick={async () => {

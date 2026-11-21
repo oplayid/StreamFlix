@@ -33,12 +33,12 @@ export const Route = createFileRoute("/")({
   },
   head: () => ({
     meta: [
-      { title: "StreamFlix — Unlimited movies, TV shows, and more" },
+      { title: "OPLAY.ID — Unlimited movies, TV shows, and more" },
       {
         name: "description",
-        content: "StreamFlix — Free streaming service. Unlimited movies, TV shows, and more.",
+        content: "OPLAY.ID — Free streaming service. Unlimited movies, TV shows, and more.",
       },
-      { property: "og:title", content: "StreamFlix" },
+      { property: "og:title", content: "OPLAY.ID" },
       {
         property: "og:description",
         content: "Unlimited movies, TV shows, and more — anywhere, anytime.",
@@ -50,20 +50,20 @@ export const Route = createFileRoute("/")({
 
 const faqs = [
   [
-    "Is StreamFlix really free?",
+    "Is OPLAY.ID really free?",
     "Yes, 100% free. No subscriptions, no hidden fees, no credit card needed. Just sign up and start watching instantly.",
   ],
   [
     "Can I watch on my phone or TV?",
-    "Absolutely. StreamFlix works on any device with an internet connection — phones, tablets, laptops, smart TVs, gaming consoles, and more.",
+    "Absolutely. OPLAY.ID works on any device with an internet connection — phones, tablets, laptops, smart TVs, gaming consoles, and more.",
   ],
   [
     "Do I need to create an account?",
     "Yes, you'll need a free account to personalize your experience, pick up where you left off, and create watchlists. It takes seconds to sign up.",
   ],
   [
-    "How is StreamFlix free?",
-    "StreamFlix is supported by our community and partners. We believe entertainment should be accessible to everyone, so we keep it free with no strings attached.",
+    "How is OPLAY.ID free?",
+    "OPLAY.ID is supported by our community and partners. We believe entertainment should be accessible to everyone, so we keep it free with no strings attached.",
   ],
   [
     "What kind of content is available?",
@@ -102,7 +102,7 @@ function Landing() {
             <Logo className="[&>span]:text-3xl [&>span]:sm:text-5xl" />
             <div className="flex items-center gap-3">
               <a
-                href="https://github.com/Wayne-Inc/StreamFlix"
+                href="https://github.com/oplayid/StreamFlix"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-foreground transition-colors"
@@ -135,7 +135,7 @@ function Landing() {
               </Link>
               {!isInApp() && (
                 <a
-                  href="https://github.com/Wayne-Inc/StreamFlix/releases"
+                  href="https://github.com/oplayid/StreamFlix/releases"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-6 py-3 text-base font-semibold text-primary hover:bg-primary/20 transition-colors"
@@ -215,7 +215,7 @@ function Landing() {
       <section className="border-y-8 border-black bg-background py-20 sm:py-28">
         <div className="mx-auto max-w-6xl px-4">
           <h2 className="text-center text-4xl font-black sm:text-5xl">
-            Why StreamFlix?
+            Why OPLAY.ID?
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-lg text-muted-foreground">
             Everything you love about streaming, minus the subscription fee.
@@ -286,7 +286,7 @@ function Landing() {
 
       <footer className="border-t border-border px-4 py-10 text-sm text-muted-foreground">
         <div className="mx-auto max-w-6xl text-center">
-          <p className="font-medium text-foreground">StreamFlix — Free for everyone.</p>
+          <p className="font-medium text-foreground">OPLAY.ID — Free for everyone.</p>
           <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
             <ContactEmail className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors">
               <Mail className="size-4" />
@@ -300,7 +300,7 @@ function Landing() {
               <Instagram className="size-4" /> @itiswayneee
             </a>
             <a
-              href="https://github.com/Wayne-Inc/StreamFlix"
+              href="https://github.com/oplayid/StreamFlix"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors"
@@ -314,7 +314,7 @@ function Landing() {
               Privacy Policy
             </Link>
           </div>
-          <p className="mt-6 text-xs">Made by Wayne Inc</p>
+          <p className="mt-6 text-xs">Made by OPLAY.ID</p>
         </div>
       </footer>
     </main>

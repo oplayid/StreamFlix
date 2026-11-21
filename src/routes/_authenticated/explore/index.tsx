@@ -15,7 +15,7 @@ export const Route = createFileRoute("/_authenticated/explore/")({
     const [genres, popular] = await Promise.all([getGenres(), fetchPopular()]);
     return { genres, items: popular };
   },
-  head: () => ({ meta: [{ title: "Explore — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Explore — OPLAY.ID" }] }),
   pendingComponent: () => (
     <div className="min-h-dvh bg-background">
       <Navbar />

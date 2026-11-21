@@ -1,4 +1,4 @@
-const APP_ORIGIN = "https://streamflix.dpdns.org";
+const APP_ORIGIN = "https://movie.oplay.id";
 
 declare global {
   interface Window {

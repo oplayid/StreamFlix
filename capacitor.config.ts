@@ -2,11 +2,11 @@ import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   appId: "com.itiswayneee.streamflix",
-  appName: "StreamFlix",
+  appName: "OPLAY.ID",
   webDir: "dist",
   server: {
     // The SSR app is served from the deployed site in the native shell.
-    url: "https://streamflix.dpdns.org/",
+    url: "https://movie.oplay.id/",
     cleartext: false,
     overrideUserAgent:
       "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36",

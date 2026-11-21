@@ -5,8 +5,8 @@ import { ContactEmail } from "@/components/streamflix/ContactEmail";
 export const Route = createFileRoute("/privacy-policy")({
   head: () => ({
     meta: [
-      { title: "Privacy Policy — StreamFlix" },
-      { name: "description", content: "StreamFlix Privacy Policy." },
+      { title: "Privacy Policy — OPLAY.ID" },
+      { name: "description", content: "OPLAY.ID Privacy Policy." },
     ],
   }),
   component: PrivacyPolicyPage,
@@ -31,8 +31,8 @@ function PrivacyPolicyPage() {
           </p>
           <h1 className="text-xl sm:text-4xl font-black">Your Privacy Matters</h1>
           <p className="text-sm sm:text-base leading-relaxed text-muted-foreground">
-            This Privacy Policy explains how StreamFlix collects, uses, discloses, and protects your
-            information when you use the service. By using StreamFlix, you consent to the practices
+            This Privacy Policy explains how OPLAY.ID collects, uses, discloses, and protects your
+            information when you use the service. By using OPLAY.ID, you consent to the practices
             described in this policy.
           </p>
         </div>
@@ -143,7 +143,7 @@ function PrivacyPolicyPage() {
         <section className="space-y-2 sm:space-y-4">
           <h2 className="text-base sm:text-2xl font-semibold">Children's Privacy</h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            StreamFlix is not intended for children under the age of 13. We do not knowingly collect
+            OPLAY.ID is not intended for children under the age of 13. We do not knowingly collect
             personal information from children. If we become aware that a child under 13 has
             provided us with personal data, we will take steps to delete it promptly.
           </p>

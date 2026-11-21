@@ -25,7 +25,7 @@ export const Route = createFileRoute("/_authenticated/explore/$genreId")({
     return { genreId: params.genreId, genreName, genres, items };
   },
   head: ({ loaderData }) => ({
-    meta: [{ title: `${loaderData?.genreName || "Explore"} — StreamFlix` }],
+    meta: [{ title: `${loaderData?.genreName || "Explore"} — OPLAY.ID` }],
   }),
   pendingComponent: () => (
     <div className="min-h-dvh bg-background">

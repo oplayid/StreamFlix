@@ -1,6 +1,7 @@
 import type { Movie } from "./types";
 import { getSelectedProfileId } from "./continue-watching";
 import { setMyListInFirestore, removeMyListFromFirestore } from "./my-list-firestore";
+import { readMigratedStorage } from "./storage-migration";
 
 export type MyListEntry = {
   id: string;
@@ -12,13 +13,14 @@ export const MY_LIST_EVENT = "sf:my-list-updated";
 
 function getKey(): string {
   const profileId = getSelectedProfileId();
-  return profileId ? `streamflix:my_list_${profileId}` : "streamflix:my_list";
+  return profileId ? `oplayid:my_list_${profileId}` : "oplayid:my_list";
 }
 
 export function getMyList(): MyListEntry[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(getKey());
+    const key = getKey();
+    const raw = readMigratedStorage(key, key.replace(/^oplayid:/, "streamflix:"));
     if (!raw) return [];
     const list = JSON.parse(raw) as MyListEntry[];
     return list.sort((a, b) => b.addedAt - a.addedAt);

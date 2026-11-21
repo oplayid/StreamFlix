@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://streamflix.dpdns.org/sitemap.xml
+Sitemap: https://movie.oplay.id/sitemap.xml

@@ -29,7 +29,7 @@
             android:layout_marginTop="18dp"
             android:fontFamily="sans-serif-black"
             android:letterSpacing="0.22"
-            android:text="StreamFlix"
+            android:text="OPLAY.ID"
             android:textColor="#E50914"
             android:textSize="26sp" />
 

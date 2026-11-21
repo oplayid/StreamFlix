@@ -6,7 +6,7 @@ import heroImg from "@/assets/hero-1.jpg";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
-  head: () => ({ meta: [{ title: "Sign In — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Sign In — OPLAY.ID" }] }),
   component: AuthPage,
 });
 
@@ -19,9 +19,9 @@ function AuthPage() {
     const code = params.get("error");
     if (code) {
       const messages: Record<string, string> = {
-        "oidc-denied": "Sign-in was cancelled or denied by Pocket ID.",
+        "oidc-denied": "Sign-in was cancelled or denied by OPLAY.ID Passkey.",
         "oidc-failed": "Could not complete sign-in. Please try again.",
-        "oidc-unavailable": "Pocket ID is not reachable. Check the OIDC configuration.",
+        "oidc-unavailable": "OPLAY.ID Passkey is not reachable. Check the OIDC configuration.",
       };
       setError(messages[code] ?? "Sign-in failed.");
     }
@@ -50,7 +50,7 @@ function AuthPage() {
         <div className="mx-auto mt-4 max-w-md rounded-md bg-black/75 p-8 sm:p-12">
           <h1 className="text-3xl font-bold">Sign In</h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            StreamFlix uses your Pocket ID account. One login for everything—no separate password
+            OPLAY.ID uses your OPLAY.ID Passkey. One login for everything—no separate password
             to remember.
           </p>
 
@@ -64,11 +64,11 @@ function AuthPage() {
             href="/api/auth/login"
             className="mt-8 flex w-full items-center justify-center gap-2 rounded bg-primary py-3 font-semibold text-primary-foreground transition hover:bg-primary/90"
           >
-            Continue with Pocket ID
+            Continue with OPLAY.ID Passkey
           </a>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            {checking ? "Checking your session…" : "Protected by OpenID Connect · PKCE"}
+            {checking ? "Checking your session…" : "Protected by OPLAY.ID Passkey · OpenID Connect · PKCE"}
           </p>
         </div>
       </div>

@@ -39,6 +39,8 @@ export async function getDb(): Promise<Db> {
   } catch {
     // ignore and use default below
   }
+  // Legacy default kept on purpose: changing it would point at an empty database
+  // for installations that rely on the fallback instead of MONGODB_DB/MONGODB_URI.
   return client.db("streamflix");
 }
 

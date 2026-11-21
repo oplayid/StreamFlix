@@ -1,5 +1,5 @@
 {
-  "name": "streamflix",
+  "name": "oplay-id",
   "version": "2.5.0",
   "private": true,
   "main": "electron/main.cjs",
@@ -113,7 +113,7 @@
   },
   "build": {
     "appId": "com.itiswayneee.streamflix",
-    "productName": "Streamflix",
+    "productName": "OPLAY.ID",
     "directories": {
       "output": "release"
     },
@@ -124,7 +124,7 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "Wayne-Inc",
+      "owner": "oplayid",
       "repo": "StreamFlix"
     }
   },

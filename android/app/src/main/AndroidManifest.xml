@@ -37,7 +37,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="streamflix.dpdns.org" />
+                <data android:scheme="https" android:host="movie.oplay.id" />
             </intent-filter>
 
         </activity>

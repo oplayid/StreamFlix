@@ -22,13 +22,13 @@ public class StreamFlixWidget extends AppWidgetProvider {
 
             Intent continueIntent = new Intent(context, MainActivity.class);
             continueIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            continueIntent.setData(Uri.parse("https://streamflix.dpdns.org/browse"));
+            continueIntent.setData(Uri.parse("https://movie.oplay.id/browse"));
             PendingIntent continuePending = PendingIntent.getActivity(context, 3, continueIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             views.setOnClickPendingIntent(R.id.widget_continue, continuePending);
 
             Intent searchIntent = new Intent(context, MainActivity.class);
             searchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            searchIntent.setData(Uri.parse("https://streamflix.dpdns.org/search"));
+            searchIntent.setData(Uri.parse("https://movie.oplay.id/search"));
             PendingIntent searchPending = PendingIntent.getActivity(context, 1, searchIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             views.setOnClickPendingIntent(R.id.widget_search, searchPending);
 

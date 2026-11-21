@@ -51,7 +51,7 @@ import { useReduceMotion } from "@/lib/reduce-motion";
 import { formatDistanceToNow } from "date-fns";
 
 export const Route = createFileRoute("/_authenticated/settings")({
-  head: () => ({ meta: [{ title: "Account Settings — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Account Settings — OPLAY.ID" }] }),
   component: SettingsPage,
 });
 
@@ -183,7 +183,7 @@ function SettingsPage() {
     setSavingName(true);
     try {
       await updateUserSettings({ avatarUrl: googlePhotoURL, showProviderPhoto: true });
-      toast.success("Avatar updated to Pocket ID profile picture");
+      toast.success("Avatar updated to OPLAY.ID Passkey profile picture");
       qc.invalidateQueries({ queryKey: ["profile"] });
     } catch (err: any) {
       setAvatarUrl(prevAvatarUrl);
@@ -411,7 +411,7 @@ function SettingsPage() {
                       disabled={savingName}
                       className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-50"
                     >
-                      <Check className="size-3" /> Use Pocket ID photo
+                      <Check className="size-3" /> Use OPLAY.ID Passkey photo
                     </button>
                   )}
                   <button
@@ -506,13 +506,13 @@ function SettingsPage() {
           )}
         </section>
 
-        {/* Password is managed by Pocket ID */}
+        {/* Password is managed by OPLAY.ID Passkey */}
         <section className="mt-6 rounded-lg border border-border bg-card/40 p-4 sm:p-6">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <KeyRound className="size-4" /> Password
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Your password is managed by Pocket ID. Use Pocket ID to change or reset it.
+            Your password is managed by OPLAY.ID Passkey. Use it to change or reset it.
           </p>
         </section>
 
@@ -557,7 +557,7 @@ function SettingsPage() {
                   <Monitor className="size-4" /> Desktop app
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  StreamFlix Desktop · Version {appVersion ?? "—"}
+                  OPLAY.ID Desktop · Version {appVersion ?? "—"}
                 </p>
               </div>
               <button

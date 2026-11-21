@@ -46,7 +46,7 @@ export const Route = createFileRoute("/_authenticated/profiles")({
       throw redirect({ to: "/browse" });
     }
   },
-  head: () => ({ meta: [{ title: "Who's watching? — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Who's watching? — OPLAY.ID" }] }),
   component: ProfilesPage,
 });
 

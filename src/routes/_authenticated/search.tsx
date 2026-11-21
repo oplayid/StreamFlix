@@ -38,7 +38,7 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute("/_authenticated/search")({
   validateSearch: searchSchema,
-  head: () => ({ meta: [{ title: "Search — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Search — OPLAY.ID" }] }),
   component: SearchPage,
 });
 

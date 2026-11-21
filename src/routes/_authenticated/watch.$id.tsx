@@ -121,13 +121,13 @@ function isEmbedUrl(url: string) {
 type EmbedPlaybackCommand = "handshake" | "play" | "pause" | "seek" | "requestProgress";
 
 type EmbedPlaybackMessage = {
-  type: "STREAMFLIX_EMBED_PLAYBACK";
+  type: "OPLAY_EMBED_PLAYBACK";
   command: EmbedPlaybackCommand;
   time?: number;
 };
 
 type EmbedPlaybackResponse = {
-  type: "STREAMFLIX_EMBED_PROGRESS" | "STREAMFLIX_EMBED_READY";
+  type: "OPLAY_EMBED_PROGRESS" | "OPLAY_EMBED_READY";
   currentTime?: number;
   duration?: number;
   isPlaying?: boolean;
@@ -140,7 +140,7 @@ function sendEmbedPlaybackCommand(
 ) {
   if (!iframe?.contentWindow) return;
   const message: EmbedPlaybackMessage = {
-    type: "STREAMFLIX_EMBED_PLAYBACK",
+    type: "OPLAY_EMBED_PLAYBACK",
     command,
   };
   if (typeof time === "number") message.time = time;
@@ -839,12 +839,12 @@ function PlayerPage() {
       const data = event.data as EmbedPlaybackResponse | null;
       if (!data?.type) return;
 
-      if (data.type === "STREAMFLIX_EMBED_READY") {
+      if (data.type === "OPLAY_EMBED_READY") {
         setEmbedSyncSupported(true);
         return;
       }
 
-      if (data.type === "STREAMFLIX_EMBED_PROGRESS") {
+      if (data.type === "OPLAY_EMBED_PROGRESS") {
         if (typeof data.currentTime !== "number" || typeof data.duration !== "number") return;
         setCurrentTime(data.currentTime);
         setDuration(data.duration);
@@ -1421,10 +1421,10 @@ export const Route = createFileRoute("/_authenticated/watch/$id")({
   },
   head: ({ loaderData }) => {
     const movie = loaderData?.movie;
-    const title = `Watching ${movie?.title ?? "Video"} — StreamFlix`;
+    const title = `Watching ${movie?.title ?? "Video"} — OPLAY.ID`;
     const description = movie?.description
       ? `${movie.description.slice(0, 200)}`
-      : "Watch movies and TV shows on StreamFlix.";
+      : "Watch movies and TV shows on OPLAY.ID.";
     const image = movie?.backdropSm || movie?.poster || "";
     return {
       meta: [

@@ -51,7 +51,7 @@ export const Route = createFileRoute("/api/release-notifications-cron")({
             for (const item of items) {
               const result = await sendPushToUsers([userId], {
                 title: `${item.title} is now available`,
-                body: "Your reminder just landed on StreamFlix.",
+                body: "Your reminder just landed on OPLAY.ID.",
                 movie_id: item.movie_id,
                 url: `${siteUrl}/movie/${item.movie_id}`,
               });

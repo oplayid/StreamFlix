@@ -16,7 +16,7 @@ type AssistantMessage = {
 };
 
 export const Route = createFileRoute("/_authenticated/assistant")({
-  head: () => ({ meta: [{ title: "AI Assistant — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "AI Assistant — OPLAY.ID" }] }),
   component: AssistantPage,
 });
 
@@ -109,7 +109,7 @@ function AssistantPage() {
               <div className="mb-5 grid size-16 place-items-center rounded-full bg-primary/15 text-primary">
                 <Sparkles className="size-8" />
               </div>
-              <p className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-primary">StreamFlix AI</p>
+              <p className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-primary">OPLAY.ID AI</p>
               <h1 className="max-w-xl text-3xl font-black tracking-tight sm:text-5xl">Your next favorite starts here.</h1>
               <p className="mt-4 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
                 {messages[0]?.content}

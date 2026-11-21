@@ -10,7 +10,7 @@ import { getMyListFromFirestore } from "@/lib/my-list-firestore";
 import { isKidsProfile, filterKidsContent } from "@/lib/kids-mode";
 
 export const Route = createFileRoute("/_authenticated/mylist")({
-  head: () => ({ meta: [{ title: "My List — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "My List — OPLAY.ID" }] }),
   component: MyListPage,
 });
 

@@ -117,9 +117,9 @@ export function setupForegroundPush(): void {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   navigator.serviceWorker.addEventListener("message", (event) => {
     const data = event.data as { type?: string; title?: string; body?: string; url?: string } | null;
-    if (data?.type !== "STREAMFLIX_PUSH" || !data.title) return;
+    if (data?.type !== "OPLAY_PUSH" || !data.title) return;
     try {
-      new Notification(data.title, { body: data.body, icon: "/icon.png", tag: "streamflix" });
+      new Notification(data.title, { body: data.body, icon: "/icon.png", tag: "oplayid" });
     } catch {
       // Notification permission may have been revoked.
     }

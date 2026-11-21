@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { hasConsent, isConsentDecided, updateConsentMode } from "@/lib/consent";
 
-const STORAGE_KEY = "streamflix:cookieConsent";
-const COOKIE_NAME = "streamflix_cookie_consent";
+const STORAGE_KEY = "oplayid:cookieConsent";
+const COOKIE_NAME = "oplayid_cookie_consent";
 
 function setConsent(value: string) {
   if (typeof document === "undefined") return;

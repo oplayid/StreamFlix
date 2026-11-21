@@ -20,7 +20,7 @@ class StreamFlixWebViewClient extends WebViewClient {
         String scheme = uri.getScheme();
         String host = uri.getHost();
 
-        if ("streamflix.dpdns.org".equals(host)) {
+        if ("movie.oplay.id".equals(host)) {
             return false;
         }
 

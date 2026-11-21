@@ -3,7 +3,7 @@ import { WifiOff, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/offline")({
   ssr: false,
-  head: () => ({ meta: [{ title: "Offline — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "Offline — OPLAY.ID" }] }),
   component: OfflinePage,
 });
 

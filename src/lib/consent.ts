@@ -1,5 +1,13 @@
-const STORAGE_KEY = "streamflix:cookieConsent";
-const COOKIE_NAME = "streamflix_cookie_consent";
+import { readMigratedStorage } from "./storage-migration";
+
+const STORAGE_KEY = "oplayid:cookieConsent";
+const COOKIE_NAME = "oplayid_cookie_consent";
+const LEGACY_STORAGE_KEY = "streamflix:cookieConsent";
+const LEGACY_COOKIE_NAME = "streamflix_cookie_consent";
+
+function storedConsent(): string | null {
+  return readMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEY) || getCookie(COOKIE_NAME) || getCookie(LEGACY_COOKIE_NAME);
+}
 
 function getCookie(name: string) {
   if (typeof document === "undefined") return null;
@@ -11,13 +19,13 @@ function getCookie(name: string) {
 
 export function hasConsent(): boolean {
   if (typeof window === "undefined") return false;
-  const stored = localStorage.getItem(STORAGE_KEY) || getCookie(COOKIE_NAME);
+  const stored = storedConsent();
   return stored === "accepted";
 }
 
 export function isConsentDecided(): boolean {
   if (typeof window === "undefined") return false;
-  const stored = localStorage.getItem(STORAGE_KEY) || getCookie(COOKIE_NAME);
+  const stored = storedConsent();
   return stored === "accepted" || stored === "declined";
 }
 

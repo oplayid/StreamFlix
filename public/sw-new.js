@@ -1,5 +1,5 @@
-const CACHE_NAME = "streamflix-cache-v2";
-const ASSET_CACHE = "streamflix-assets-v2";
+const CACHE_NAME = "oplayid-cache-v2";
+const ASSET_CACHE = "oplayid-assets-v2";
 const OFFLINE_URL = "/offline";
 
 const PRECACHE_URLS = ["/", OFFLINE_URL, "/browse"];
@@ -125,12 +125,12 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { body: event.data ? event.data.text() : "" };
   }
-  const title = data.title || "StreamFlix";
+  const title = data.title || "OPLAY.ID";
   const options = {
     body: data.body || "Something new to watch.",
     icon: "/icon.png",
     badge: "/icon.png",
-    tag: data.movie_id ? `release-${data.movie_id}` : "streamflix",
+    tag: data.movie_id ? `release-${data.movie_id}` : "oplayid",
     data: { url: data.url || "/", movie_id: data.movie_id || "" },
   };
   event.waitUntil(self.registration.showNotification(title, options));

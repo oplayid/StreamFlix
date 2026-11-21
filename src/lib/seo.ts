@@ -32,7 +32,7 @@ export function seoMetaFor(
     { property: "og:image:type", content: "image/jpeg" },
     ...(url ? [{ property: "og:url", content: url }] : []),
     { property: "og:type", content: type },
-    { property: "og:site_name", content: "StreamFlix" },
+    { property: "og:site_name", content: "OPLAY.ID" },
     { name: "twitter:card", content: "summary_large_image" },
     { name: "twitter:title", content: title },
     { name: "twitter:description", content: description },

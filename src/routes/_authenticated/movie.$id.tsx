@@ -129,10 +129,10 @@ export const Route = createFileRoute("/_authenticated/movie/$id")({
   },
   head: ({ loaderData }) => {
     const movie = loaderData?.movie;
-    const title = movie ? `${movie.title} (${movie.year}) — StreamFlix` : "Movie — StreamFlix";
+    const title = movie ? `${movie.title} (${movie.year}) — OPLAY.ID` : "Movie — OPLAY.ID";
     const description = movie?.description
       ? `${movie.description.slice(0, 200)}`
-      : "Watch movies and TV shows on StreamFlix.";
+      : "Watch movies and TV shows on OPLAY.ID.";
     const image = movie?.backdropSm || movie?.poster || "";
     const site = siteUrl();
     const url = site ? `${site}/movie/${movie?.id ?? ""}` : "";

@@ -1,6 +1,6 @@
 {
-  "name": "StreamFlix",
-  "short_name": "StreamFlix",
+  "name": "OPLAY.ID",
+  "short_name": "OPLAY.ID",
   "start_url": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],

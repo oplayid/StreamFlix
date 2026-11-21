@@ -12,7 +12,7 @@ function isMobile(): boolean {
 
 export async function shareContent(input: ShareInput): Promise<"shared" | "copied"> {
   const shareUrl = input.url || (typeof window !== "undefined" ? window.location.href : "");
-  const shareTitle = input.title || "StreamFlix";
+  const shareTitle = input.title || "OPLAY.ID";
   const shareText = input.text || shareTitle;
 
   // Web Share API (works in Chrome, not all WebViews)

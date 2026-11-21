@@ -46,7 +46,7 @@ public class MediaPlaybackService extends Service {
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("StreamFlix")
+                .setContentTitle("OPLAY.ID")
                 .setContentText("Ready to play")
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setSilent(true)
@@ -114,7 +114,7 @@ public class MediaPlaybackService extends Service {
         MediaMetadataCompat.Builder metadataBuilder = new MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
-                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "StreamFlix");
+                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "OPLAY.ID");
 
         if (artworkUrl != null && !artworkUrl.isEmpty()) {
             try {
@@ -187,7 +187,7 @@ public class MediaPlaybackService extends Service {
                     "Playback Controls",
                     NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("Media playback controls for StreamFlix");
+            channel.setDescription("Media playback controls for OPLAY.ID");
             channel.setShowBadge(false);
             NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (manager != null) {

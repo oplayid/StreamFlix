@@ -5,10 +5,10 @@ export function Logo({ className = "" }: { className?: string }) {
     <Link
       to="/browse"
       className={`inline-flex items-center gap-2.5 ${className}`}
-      aria-label="StreamFlix browse"
+      aria-label="OPLAY.ID browse"
     >
       <span className="text-primary font-black tracking-tighter text-2xl sm:text-3xl select-none">
-        STREAM<span className="text-foreground">FLIX</span>
+        OPLAY<span className="text-foreground">.ID</span>
       </span>
     </Link>
   );

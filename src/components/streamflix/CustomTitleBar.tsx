@@ -54,7 +54,7 @@ export function CustomTitleBar() {
     >
       <div className="flex items-center gap-2.5">
         <span className="text-xs font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white via-zinc-200 to-zinc-400">
-          STREAMFLIX
+          OPLAY.ID
         </span>
         <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium tracking-wide border border-primary/20">
           <Sparkles className="size-2.5" /> Desktop

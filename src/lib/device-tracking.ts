@@ -2,12 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { collection, now } from "./mongo";
 import { hasConsent } from "./consent";
+import { readMigratedStorage } from "./storage-migration";
 
-const DEVICE_ID_KEY = "streamflix_device_id";
+const DEVICE_ID_KEY = "oplayid_device_id";
+const LEGACY_DEVICE_ID_KEY = "streamflix_device_id";
 
 export function getDeviceId(): string {
   if (typeof window === "undefined") return "";
-  let id = localStorage.getItem(DEVICE_ID_KEY);
+  let id = readMigratedStorage(DEVICE_ID_KEY, LEGACY_DEVICE_ID_KEY);
   if (!id) {
     id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36);
     localStorage.setItem(DEVICE_ID_KEY, id);

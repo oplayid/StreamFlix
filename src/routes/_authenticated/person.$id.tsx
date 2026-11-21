@@ -8,7 +8,7 @@ import { fetchPersonDetails } from "@/lib/api/tmdb";
 
 export const Route = createFileRoute("/_authenticated/person/$id")({
   ssr: false,
-  head: ({ params }) => ({ meta: [{ title: `Person — StreamFlix` }] }),
+  head: ({ params }) => ({ meta: [{ title: `Person — OPLAY.ID` }] }),
   component: PersonPage,
 });
 

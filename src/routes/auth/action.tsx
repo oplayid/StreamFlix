@@ -16,7 +16,7 @@ function ActionPage() {
         <Logo />
         <h1 className="mt-6 text-2xl font-bold">No action needed</h1>
         <p className="mt-3 max-w-sm text-sm text-muted-foreground">
-          Accounts are managed by Pocket ID. Use your Pocket ID account to sign in, reset your
+          Accounts are managed by OPLAY.ID Passkey. Use your OPLAY.ID Passkey to sign in, reset your
           password, or verify your email.
         </p>
         <a

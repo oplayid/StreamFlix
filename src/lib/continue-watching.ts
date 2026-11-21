@@ -3,9 +3,15 @@ import {
   saveHistoryToFirestore,
   removeHistoryFromFirestore,
 } from "./history-firestore";
+import { readMigratedStorage } from "./storage-migration";
 
-const KEY = "streamflix:continue-watching";
-const HISTORY_KEY = "streamflix:watch-history";
+const KEY = "oplayid:continue-watching";
+const HISTORY_KEY = "oplayid:watch-history";
+
+/** Migrate a value from the pre-rebrand `streamflix:` namespace once. */
+function readStorage(key: string): string | null {
+  return readMigratedStorage(key, key.replace(/^oplayid:/, "streamflix:"));
+}
 const MAX = 12;
 const HISTORY_MAX = 50;
 
@@ -51,12 +57,12 @@ export function getSelectedProfileId(): string | null {
 
 function getKey(): string {
   const profileId = getSelectedProfileId();
-  return profileId ? `streamflix:continue_${profileId}` : KEY;
+  return profileId ? `oplayid:continue_${profileId}` : KEY;
 }
 
 function getHistoryKey(): string {
   const profileId = getSelectedProfileId();
-  return profileId ? `streamflix:watch_history_${profileId}` : HISTORY_KEY;
+  return profileId ? `oplayid:watch_history_${profileId}` : HISTORY_KEY;
 }
 
 function makeContinueId(movieId: string, season?: number, episode?: number) {
@@ -66,7 +72,7 @@ function makeContinueId(movieId: string, season?: number, episode?: number) {
 export function getContinueWatching(): ContinueItem[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(getKey());
+    const raw = readStorage(getKey());
     if (!raw) return [];
     const list = JSON.parse(raw) as ContinueItem[];
     return list.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -78,7 +84,7 @@ export function getContinueWatching(): ContinueItem[] {
 export function getWatchHistory(): WatchHistoryItem[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(getHistoryKey());
+    const raw = readStorage(getHistoryKey());
     if (!raw) return [];
     const list = JSON.parse(raw) as WatchHistoryItem[];
     return list.sort((a, b) => b.watchedAt - a.watchedAt);

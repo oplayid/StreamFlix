@@ -1,8 +1,23 @@
-# StreamFlix
+# OPLAY.ID
 
 A self-hostable, Netflix-style streaming web app. Browse movies and TV shows, manage profiles, keep a watchlist, resume playback, add your own subtitles, and get release reminders — all backed by **MongoDB** and **Pocket ID** (OIDC). There is **no Firebase** in this build.
 
 Playback still uses external embed players. Subtitles are a separate overlay/source layer, so changing subtitles never changes the video source.
+
+The product is branded **OPLAY.ID** everywhere users can see it. On the sign-in screen the Pocket ID flow is presented as **OPLAY.ID Passkey**; Pocket ID remains the OIDC provider behind the scenes (client id, issuer, and redirect URI are configured with `POCKET_ID_*` variables).
+
+### Legacy internal identifiers (kept on purpose)
+
+These are not user-facing branding. Renaming them would break sessions, stored data, or the Coolify deployment, so they were intentionally preserved:
+
+| Identifier | Why it stays |
+| --- | --- |
+| `ghcr.io/oplayid/streamflix:latest` | Coolify service points at this image name. |
+| MongoDB fallback DB `streamflix` | Used only when neither `MONGODB_DB` nor the URI names a database; set `MONGODB_DB` explicitly to migrate. |
+| Android package `com.itiswayneee.streamflix` | Changing the package id creates a separate install and breaks updates/asset links. |
+| `sf:*` localStorage keys | Short internal namespace (session, profile, embed choice); unrelated to the old product name. |
+
+`streamflix:*` browser keys (consent, device id, watch history, my list, screensaver event) are migrated to `oplayid:*` automatically on first load — no user action needed.
 
 ## Features
 
@@ -11,7 +26,7 @@ Playback still uses external embed players. Subtitles are a separate overlay/sou
 - **Profiles** — multiple profiles per account, avatars, kids mode, and optional PINs.
 - **Browse & explore** — home feed, trending, TV, new releases, genre/mood pages, search with filters.
 - **Watch** — embed player with season/episode picker, PiP, mobile controls.
-- **Custom subtitles** — upload `.vtt`/`.srt` files or add a third-party subtitle URL; VTT is normalized server-side; works as native `<track>` for direct video and as an overlay for embeds. Per-title timing offset (±5s) is remembered locally.
+- **Custom subtitles** — upload `.vtt`/`.srt` files or add a third-party subtitle URL; VTT is normalized server-side; works as native `<track>` for direct video and as an overlay for embeds. Per-track timing (offset + drift) is stored in MongoDB.
 - **Web Push** — release-day reminders and admin broadcasts via VAPID (no FCM).
 - **AI assistant** — optional NVIDIA NIM-backed recommendations and summaries.
 
@@ -62,7 +77,7 @@ The production server entry is `.output/server/index.mjs` (Nitro `node-server`).
 | Variable | Description |
 | --- | --- |
 | `VITE_TMDB_API_KEY` | TMDB API key used by the browser-facing data helpers. Set as Actions secret `TMDB_API_KEY` or variable `VITE_TMDB_API_KEY`. |
-| `VITE_SITE_URL` | Public site URL, e.g. `https://streamflix.example.com`. |
+| `VITE_SITE_URL` | Public site URL, e.g. `https://movie.oplay.id`. |
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (optional). |
 | `VITE_WEB_PUSH_PUBLIC_KEY` | VAPID **public** key. Required for browser push subscription. |
 
@@ -100,16 +115,16 @@ Put the public key in both `VITE_WEB_PUSH_PUBLIC_KEY` (build arg) and `WEB_PUSH_
 ## Pocket ID setup
 
 1. Create an OIDC client in Pocket ID.
-2. Redirect URI: `https://<your-streamflix-domain>/api/auth/callback` (or the value of `POCKET_ID_REDIRECT_URI`).
+2. Redirect URI: `https://<your-oplay-domain>/api/auth/callback` (or the value of `POCKET_ID_REDIRECT_URI`). For this deployment: `https://movie.oplay.id/api/auth/callback`.
 3. Copy the issuer URL, client ID, and (if confidential) client secret into Coolify.
-4. Make sure Pocket ID is reachable from the StreamFlix container — the server fetches `/.well-known/openid-configuration` and the JWKS at login time.
+4. Make sure Pocket ID is reachable from the OPLAY.ID container — the server fetches `/.well-known/openid-configuration` and the JWKS at login time.
 
 ## Docker / GitHub Actions / Coolify
 
 1. Push to `main`. `.github/workflows/docker-publish.yml` builds and pushes `ghcr.io/<owner>/<repo>:latest` (plus a short-SHA tag) using a PAT stored in `CR_PAT` with `write:packages`. The default `GITHUB_TOKEN` cannot write to an existing GHCR package that was created with a PAT.
 2. Configure the Actions **Variables** (public): `VITE_SITE_URL`, `SITE_URL`, `VITE_TURNSTILE_SITE_KEY`, `VITE_WEB_PUSH_PUBLIC_KEY`.
 3. Configure the Actions **Secrets**: `TMDB_API_KEY` (falls back to variable `VITE_TMDB_API_KEY`), `CRON_SECRET`, `WAYBACK_ARCHIVE_KEY`.
-4. In Coolify, create a new **Docker Image** service pointing at `ghcr.io/<owner>/<repo>:latest`. If the image is private, add a registry token with `read:packages`.
+4. In Coolify, create a new **Docker Image** service pointing at `ghcr.io/oplayid/streamflix:latest` (or `ghcr.io/<owner>/<repo>:latest` for a fork). If the image is private, add a registry token with `read:packages`.
 5. Set all runtime variables from the table above in Coolify, then deploy.
 6. Health-check: `GET /api/auth/me` returns `{"user":null}` when logged out and the user object when logged in.
 

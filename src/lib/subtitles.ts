@@ -177,7 +177,7 @@ const createFromUrl = createServerFn({ method: "POST" })
     if (!/^https?:$/.test(parsed.protocol)) throw new Error("Only http(s) subtitle URLs are allowed");
 
     const res = await fetch(parsed, {
-      headers: { "User-Agent": "StreamFlix-Subtitle-Fetch/1.0", Accept: "*/*" },
+      headers: { "User-Agent": "OPLAY.ID-Subtitle-Fetch/1.0", Accept: "*/*" },
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`Subtitle URL returned ${res.status}`);

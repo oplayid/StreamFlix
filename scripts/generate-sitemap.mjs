@@ -3,7 +3,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SITE_URL = "https://streamflix.dpdns.org";
+const SITE_URL = "https://movie.oplay.id";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
 const TMDB_API_KEY =

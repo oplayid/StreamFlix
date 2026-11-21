@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_authenticated/calendar")({
     const [movies, tv] = await Promise.all([loadUpcomingCalendar(), loadAiringCalendar()]);
     return { items: [...movies, ...tv] };
   },
-  head: () => ({ meta: [{ title: "New & Coming Soon — StreamFlix" }] }),
+  head: () => ({ meta: [{ title: "New & Coming Soon — OPLAY.ID" }] }),
   pendingComponent: () => (
     <div className="min-h-dvh bg-background">
       <Navbar />
