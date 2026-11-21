@@ -1,7 +1,15 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { useEffect, useRef, useState, useCallback, type MouseEvent, type TouchEvent } from "react";
-import { ArrowLeft, Settings, Loader, RotateCw, ShieldOff, Minimize2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Settings,
+  Loader,
+  RotateCw,
+  ShieldOff,
+  Minimize2,
+  Maximize2,
+} from "lucide-react";
 import { movieById } from "@/lib/streamflix-data";
 import { recordProgress } from "@/lib/continue-watching";
 import { saveProgressToFirestore } from "@/lib/continue-watching-firestore";
@@ -76,11 +84,11 @@ const availableEmbedServers: EmbedServer[] = [
     },
   },
   {
-    id: "2embed",
-    name: "2Embed",
+    id: "vidcore",
+    name: "VidCore",
     urls: {
-      movie: "https://www.2embed.cc/embed/{id}",
-      tv: "https://www.2embed.cc/embedtv/{id}&s={season}&e={episode}",
+      movie: "https://vidcore.org/embed/movie/{id}?autoplay=true&lang=id&theme=FCC217",
+      tv: "https://vidcore.org/embed/tv/{id}/{season}/{episode}?autoplay=true&lang=id&theme=FCC217",
     },
   },
 ];
@@ -265,6 +273,7 @@ function PlayerPage() {
   }, []);
 
   const [pipSupported, setPipSupported] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const checkPipSupport = useCallback(async () => {
     // First check: browser API
@@ -365,6 +374,22 @@ function PlayerPage() {
       hideTimer.current = window.setTimeout(() => setShowControls(false), 3000);
     }
   }, [showSettings]);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await containerRef.current?.requestFullscreen();
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
 
   const handleWakeTap = useCallback(
     (event: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => {
@@ -1148,6 +1173,17 @@ function PlayerPage() {
                   <Minimize2 className="size-5 sm:size-5" />
                 </button>
               )}
+              <button
+                onClick={toggleFullscreen}
+                aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                className="hover:text-white/70 transition min-h-11 min-w-11 flex items-center justify-center"
+              >
+                {isFullscreen ? (
+                  <Minimize2 className="size-5 sm:size-5" />
+                ) : (
+                  <Maximize2 className="size-5 sm:size-5" />
+                )}
+              </button>
               <div className="relative">
                 <button
                   onClick={() => {
