@@ -198,10 +198,14 @@ export const fetchMovie = createServerFn({ method: "POST" })
     const { tmdbFetch, toMovie, toTv } = await import("./tmdb.server");
     if (data.id.startsWith("tv-")) {
       const realId = data.id.slice(3);
-      const m = await tmdbFetch(`/tv/${realId}`, { append_to_response: "credits,videos,content_ratings" });
+      const m = await tmdbFetch(`/tv/${realId}`, {
+        append_to_response: "credits,videos,content_ratings",
+      });
       return toTv(m);
     }
-    const m = await tmdbFetch(`/movie/${data.id}`, { append_to_response: "credits,videos,release_dates" });
+    const m = await tmdbFetch(`/movie/${data.id}`, {
+      append_to_response: "credits,videos,release_dates",
+    });
     return toMovie(m);
   });
 
@@ -331,7 +335,9 @@ export function fuzzySearchQueries(query: string): string[] {
 
       score += prefix + suffix;
       if (originalWord.length === variantWord.length) {
-        score += originalWord.split("").filter((char, charIndex) => char === variantWord[charIndex]).length;
+        score += originalWord
+          .split("")
+          .filter((char, charIndex) => char === variantWord[charIndex]).length;
       }
     }
 
@@ -380,8 +386,7 @@ export const searchMovies = createServerFn({ method: "POST" })
         });
     }
 
-    return combined
-      .map((m: any) => (m.media_type === "tv" ? toTv(m) : toMovie(m)));
+    return combined.map((m: any) => (m.media_type === "tv" ? toTv(m) : toMovie(m)));
   });
 
 export type SearchSort = "relevance" | "popularity" | "rating" | "year" | "title";
@@ -509,7 +514,10 @@ export const suggestTitles = createServerFn({ method: "POST" })
       .map((m: any) => ({
         id: m.media_type === "tv" ? `tv-${m.id}` : String(m.id),
         title: m.title || m.name || "Untitled",
-        year: m.release_date || m.first_air_date ? Number((m.release_date || m.first_air_date).slice(0, 4)) : null,
+        year:
+          m.release_date || m.first_air_date
+            ? Number((m.release_date || m.first_air_date).slice(0, 4))
+            : null,
         poster: m.poster_path ? `https://image.tmdb.org/t/p/w185${m.poster_path}` : "",
         mediaType: m.media_type,
         genreIds: m.genre_ids || [],
@@ -537,11 +545,7 @@ export const discoverByGenre = createServerFn({ method: "POST" })
         page: "3",
       }),
     ]);
-    const combined = [
-      ...(res1.results || []),
-      ...(res2.results || []),
-      ...(res3.results || []),
-    ];
+    const combined = [...(res1.results || []), ...(res2.results || []), ...(res3.results || [])];
     return combined.map((m: any) => toMovie(m));
   });
 
@@ -562,7 +566,10 @@ export const discoverByGenreMixed = createServerFn({ method: "POST" })
       }),
     ]);
     const seen = new Set<string>();
-    return [...(movieRes.results || []).map((m: any) => toMovie(m)), ...(tvRes.results || []).map((m: any) => toTv(m))].filter((m) => {
+    return [
+      ...(movieRes.results || []).map((m: any) => toMovie(m)),
+      ...(tvRes.results || []).map((m: any) => toTv(m)),
+    ].filter((m) => {
       if (seen.has(m.id)) return false;
       seen.add(m.id);
       return true;
@@ -694,4 +701,38 @@ export const fetchWatchProviders = createServerFn({ method: "POST" })
     const { fetchWatchProviders: fetch } = await import("./tmdb.server");
     const tmdbId = data.id.replace(/^tv-/, "");
     return fetch(tmdbId, data.type);
+  });
+
+export const fetchWatchProviderCatalog = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      type: z.enum(["movie", "tv"]).default("movie"),
+      watchRegion: z.string().default("ID"),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { fetchWatchProviderCatalog: fetch } = await import("./tmdb.server");
+    return fetch(data.type, data.watchRegion);
+  });
+
+export const discoverByWatchProvider = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      type: z.enum(["movie", "tv"]).default("movie"),
+      providerId: z.number(),
+      watchRegion: z.string().default("ID"),
+      page: z.number().default(1),
+      sortBy: z.string().default("popularity.desc"),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { discoverByWatchProvider: discover, toMovie, toTv } = await import("./tmdb.server");
+    const results = await discover(
+      data.type,
+      data.providerId,
+      data.watchRegion,
+      String(data.page),
+      data.sortBy,
+    );
+    return results.map((m) => (data.type === "tv" ? toTv(m) : toMovie(m)));
   });

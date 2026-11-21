@@ -200,15 +200,15 @@ export async function fetchTitleLogosByIds(ids: string[]) {
 }
 
 export async function enrichCertifications(items: Movie[]): Promise<Movie[]> {
-  const needIds = items.filter(m => !m.rating && !m.id.startsWith("tv-")).map(m => m.id);
+  const needIds = items.filter((m) => !m.rating && !m.id.startsWith("tv-")).map((m) => m.id);
   if (!needIds.length) return items;
 
   const details = await Promise.allSettled(
-    needIds.map(id =>
-      tmdbFetch(`/movie/${id}`, { append_to_response: "release_dates" }).then(r => ({
+    needIds.map((id) =>
+      tmdbFetch(`/movie/${id}`, { append_to_response: "release_dates" }).then((r) => ({
         id,
         cert: extractCertification(r),
-      }))
+      })),
     ),
   );
 
@@ -217,9 +217,7 @@ export async function enrichCertifications(items: Movie[]): Promise<Movie[]> {
     if (d.status === "fulfilled") certMap.set(d.value.id, d.value.cert);
   }
 
-  return items.map(m =>
-    certMap.has(m.id) ? { ...m, rating: certMap.get(m.id)! } : m
-  );
+  return items.map((m) => (certMap.has(m.id) ? { ...m, rating: certMap.get(m.id)! } : m));
 }
 
 export function toTv(m: any): Movie {
@@ -283,14 +281,17 @@ export interface WatchProvider {
 }
 
 export interface WatchProvidersResult {
-  results: Record<string, {
-    link: string;
-    flatrate?: WatchProvider[];
-    rent?: WatchProvider[];
-    buy?: WatchProvider[];
-    free?: WatchProvider[];
-    ads?: WatchProvider[];
-  }>;
+  results: Record<
+    string,
+    {
+      link: string;
+      flatrate?: WatchProvider[];
+      rent?: WatchProvider[];
+      buy?: WatchProvider[];
+      free?: WatchProvider[];
+      ads?: WatchProvider[];
+    }
+  >;
 }
 
 export async function fetchWatchProviders(
@@ -299,4 +300,36 @@ export async function fetchWatchProviders(
 ): Promise<WatchProvidersResult["results"]> {
   const data = await tmdbFetch(`/${type}/${tmdbId}/watch/providers`);
   return data.results || {};
+}
+
+export interface WatchProviderCatalogItem {
+  provider_id: number;
+  provider_name: string;
+  logo_path: string | null;
+  display_priority: number;
+}
+
+export async function fetchWatchProviderCatalog(
+  type: "movie" | "tv",
+  watchRegion = "ID",
+): Promise<WatchProviderCatalogItem[]> {
+  const data = await tmdbFetch(`/watch/providers/${type}`, { watch_region: watchRegion });
+  return (data.results || []) as WatchProviderCatalogItem[];
+}
+
+export async function discoverByWatchProvider(
+  type: "movie" | "tv",
+  providerId: number,
+  watchRegion = "ID",
+  page = "1",
+  sortBy = "popularity.desc",
+): Promise<unknown[]> {
+  const data = await tmdbFetch(`/discover/${type}`, {
+    with_watch_providers: String(providerId),
+    watch_region: watchRegion,
+    with_watch_monetization_types: "flatrate",
+    sort_by: sortBy,
+    page,
+  });
+  return data.results || [];
 }

@@ -10,7 +10,7 @@ import { Footer } from "@/components/streamflix/Footer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RowSkeleton } from "@/components/streamflix/RowSkeleton";
 import { loadBrowseData, searchByGenre, type BrowseKind } from "@/lib/streamflix-data";
-import { fetchPopular } from "@/lib/api/tmdb";
+import { discoverByWatchProvider, fetchPopular, fetchWatchProviderCatalog } from "@/lib/api/tmdb";
 import type { Movie } from "@/lib/types";
 import { useSession } from "@/lib/session";
 import { getFavoriteGenres, GENRE_OPTIONS } from "@/lib/favorite-genres";
@@ -27,7 +27,12 @@ import {
   toMovie as fsToMovie,
 } from "@/lib/continue-watching-firestore";
 import { getWatchHistoryFromFirestore } from "@/lib/history-firestore";
-import { isKidsProfile, filterKidsContent, filterKidsHeroSlides, UNSAFE_GENRE_IDS } from "@/lib/kids-mode";
+import {
+  isKidsProfile,
+  filterKidsContent,
+  filterKidsHeroSlides,
+  UNSAFE_GENRE_IDS,
+} from "@/lib/kids-mode";
 import { getPersonalizedRecommendations, type RecommendSeed } from "@/lib/recommendations";
 
 const searchSchema = z.object({
@@ -90,10 +95,18 @@ function BrowsePage() {
   const rows: { title: string; items: Movie[] }[] = data.rows;
   const { kind } = Route.useSearch();
   const kidsMode = useMemo(() => isKidsProfile(), []);
-  const safeGenreGroups = genreGroups.filter((g) => !kidsMode || !UNSAFE_GENRE_IDS.has(Number(g.id)));
+  const safeGenreGroups = genreGroups.filter(
+    (g) => !kidsMode || !UNSAFE_GENRE_IDS.has(Number(g.id)),
+  );
   const [activeGenreId, setActiveGenreId] = useState(safeGenreGroups[0]?.id ?? "");
   const [genreMenuOpen, setGenreMenuOpen] = useState(false);
   const genreMenuRef = useRef<HTMLDivElement | null>(null);
+  const [platforms, setPlatforms] = useState<
+    { provider_id: number; provider_name: string; logo_path: string | null }[]
+  >([]);
+  const [selectedPlatformId, setSelectedPlatformId] = useState<number | null>(null);
+  const [platformItems, setPlatformItems] = useState<Movie[]>([]);
+  const [platformLoading, setPlatformLoading] = useState(false);
   useEffect(() => {
     if (!genreMenuOpen) return;
     const onPointerDown = (e: PointerEvent) => {
@@ -104,7 +117,100 @@ function BrowsePage() {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [genreMenuOpen]);
-  const activeGenre = genreGroups.find((g) => g.id === activeGenreId) ?? genreGroups.find((g) => !kidsMode || !UNSAFE_GENRE_IDS.has(Number(g.id))) ?? genreGroups[0];
+
+  useEffect(() => {
+    if (kind !== "home") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [movieProviders, tvProviders] = await Promise.all([
+          fetchWatchProviderCatalog({ data: { type: "movie", watchRegion: "ID" } }),
+          fetchWatchProviderCatalog({ data: { type: "tv", watchRegion: "ID" } }),
+        ]);
+        if (cancelled) return;
+        const byId = new Map<
+          number,
+          {
+            provider_id: number;
+            provider_name: string;
+            logo_path: string | null;
+            display_priority: number;
+          }
+        >();
+        for (const p of [...movieProviders, ...tvProviders]) {
+          const prev = byId.get(p.provider_id);
+          if (!prev || (p.display_priority ?? 999) < (prev.display_priority ?? 999)) {
+            byId.set(p.provider_id, p);
+          }
+        }
+        const preferred = [8, 9, 337, 384, 15, 1899, 531, 2, 122, 283, 350, 11]; // common IDs across regions; still sorted by availability
+        const all = [...byId.values()].sort((a, b) => {
+          const ai = preferred.indexOf(a.provider_id);
+          const bi = preferred.indexOf(b.provider_id);
+          if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+          return (a.display_priority ?? 999) - (b.display_priority ?? 999);
+        });
+        setPlatforms(all.slice(0, 16));
+      } catch {
+        if (!cancelled) setPlatforms([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind]);
+
+  useEffect(() => {
+    if (!selectedPlatformId || kind !== "home") {
+      setPlatformItems([]);
+      return;
+    }
+    let cancelled = false;
+    setPlatformLoading(true);
+    (async () => {
+      try {
+        const [movies, tv] = await Promise.all([
+          discoverByWatchProvider({
+            data: {
+              type: "movie",
+              providerId: selectedPlatformId,
+              watchRegion: "ID",
+              page: 1,
+              sortBy: "popularity.desc",
+            },
+          }),
+          discoverByWatchProvider({
+            data: {
+              type: "tv",
+              providerId: selectedPlatformId,
+              watchRegion: "ID",
+              page: 1,
+              sortBy: "popularity.desc",
+            },
+          }),
+        ]);
+        if (cancelled) return;
+        const seen = new Set<string>();
+        const merged = [...movies, ...tv].filter((m) => {
+          if (seen.has(m.id)) return false;
+          seen.add(m.id);
+          return true;
+        });
+        setPlatformItems(merged);
+      } catch {
+        if (!cancelled) setPlatformItems([]);
+      } finally {
+        if (!cancelled) setPlatformLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPlatformId, kind]);
+  const activeGenre =
+    genreGroups.find((g) => g.id === activeGenreId) ??
+    genreGroups.find((g) => !kidsMode || !UNSAFE_GENRE_IDS.has(Number(g.id))) ??
+    genreGroups[0];
   const [top10Ref, setTop10Ref] = useState<HTMLDivElement | null>(null);
   const [top10Scroll, setTop10Scroll] = useState({ left: 0, viewport: 0, width: 0 });
   const [trendingWeekRef, setTrendingWeekRef] = useState<HTMLDivElement | null>(null);
@@ -379,12 +485,20 @@ function BrowsePage() {
     const el = trendingWeekRef;
     if (!el) return;
     const measure = () =>
-      setTrendingWeekScroll({ left: el.scrollLeft, viewport: el.clientWidth, width: el.scrollWidth });
+      setTrendingWeekScroll({
+        left: el.scrollLeft,
+        viewport: el.clientWidth,
+        width: el.scrollWidth,
+      });
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     const onScroll = () =>
-      setTrendingWeekScroll({ left: el.scrollLeft, viewport: el.clientWidth, width: el.scrollWidth });
+      setTrendingWeekScroll({
+        left: el.scrollLeft,
+        viewport: el.clientWidth,
+        width: el.scrollWidth,
+      });
     el.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", measure);
     return () => {
@@ -401,7 +515,10 @@ function BrowsePage() {
 
   const scrollTrendingWeek = (dir: 1 | -1) => {
     if (!trendingWeekRef) return;
-    trendingWeekRef.scrollBy({ left: dir * (trendingWeekRef.clientWidth * 0.9), behavior: "smooth" });
+    trendingWeekRef.scrollBy({
+      left: dir * (trendingWeekRef.clientWidth * 0.9),
+      behavior: "smooth",
+    });
   };
 
   const [kidsPool, setKidsPool] = useState<Movie[]>([]);
@@ -519,15 +636,15 @@ function BrowsePage() {
               )}
               {top10Scroll.viewport > 0 &&
                 top10Scroll.left + top10Scroll.viewport < top10Scroll.width - 2 && (
-                <button
-                  type="button"
-                  onClick={() => scrollTop10(1)}
-                  aria-label="Scroll top 10 right"
-                  className="absolute right-1 sm:right-2 top-1/2 z-30 hidden size-10 -translate-y-1/2 place-items-center rounded-md border border-border bg-background/90 text-foreground shadow-lg backdrop-blur transition hover:bg-primary hover:text-primary-foreground sm:grid"
-                >
-                  <ChevronRight className="size-5" />
-                </button>
-              )}
+                  <button
+                    type="button"
+                    onClick={() => scrollTop10(1)}
+                    aria-label="Scroll top 10 right"
+                    className="absolute right-1 sm:right-2 top-1/2 z-30 hidden size-10 -translate-y-1/2 place-items-center rounded-md border border-border bg-background/90 text-foreground shadow-lg backdrop-blur transition hover:bg-primary hover:text-primary-foreground sm:grid"
+                  >
+                    <ChevronRight className="size-5" />
+                  </button>
+                )}
               <div
                 ref={setTop10Ref}
                 className="scrollbar-hide flex gap-3 sm:gap-5 overflow-x-auto scroll-smooth px-4 sm:px-8"
@@ -556,16 +673,17 @@ function BrowsePage() {
                 </button>
               )}
               {trendingWeekScroll.viewport > 0 &&
-                trendingWeekScroll.left + trendingWeekScroll.viewport < trendingWeekScroll.width - 2 && (
-                <button
-                  type="button"
-                  onClick={() => scrollTrendingWeek(1)}
-                  aria-label="Scroll trending week right"
-                  className="absolute right-1 sm:right-2 top-1/2 z-30 hidden size-10 -translate-y-1/2 place-items-center rounded-md border border-border bg-background/90 text-foreground shadow-lg backdrop-blur transition hover:bg-primary hover:text-primary-foreground sm:grid"
-                >
-                  <ChevronRight className="size-5" />
-                </button>
-              )}
+                trendingWeekScroll.left + trendingWeekScroll.viewport <
+                  trendingWeekScroll.width - 2 && (
+                  <button
+                    type="button"
+                    onClick={() => scrollTrendingWeek(1)}
+                    aria-label="Scroll trending week right"
+                    className="absolute right-1 sm:right-2 top-1/2 z-30 hidden size-10 -translate-y-1/2 place-items-center rounded-md border border-border bg-background/90 text-foreground shadow-lg backdrop-blur transition hover:bg-primary hover:text-primary-foreground sm:grid"
+                  >
+                    <ChevronRight className="size-5" />
+                  </button>
+                )}
               <div
                 ref={setTrendingWeekRef}
                 className="scrollbar-hide flex gap-3 sm:gap-5 overflow-x-auto scroll-smooth px-4 sm:px-8"
@@ -575,6 +693,53 @@ function BrowsePage() {
                 ))}
               </div>
             </div>
+          </section>
+        )}
+        {kind === "home" && platforms.length > 0 && (
+          <section className="space-y-4 py-4">
+            <div className="px-4 sm:px-8">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Platform Streaming</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Filter berdasarkan platform yang tersedia di region ID (TMDB).
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {platforms.map((p) => {
+                  const active = selectedPlatformId === p.provider_id;
+                  return (
+                    <button
+                      key={p.provider_id}
+                      type="button"
+                      onClick={() => setSelectedPlatformId(active ? null : p.provider_id)}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${
+                        active
+                          ? "border-primary bg-primary/15 text-primary"
+                          : "border-border text-muted-foreground hover:border-primary hover:text-foreground"
+                      }`}
+                    >
+                      {p.logo_path ? (
+                        <img
+                          src={`https://image.tmdb.org/t/p/w45${p.logo_path}`}
+                          alt=""
+                          className="size-5 rounded-sm object-cover"
+                          loading="lazy"
+                        />
+                      ) : null}
+                      <span>{p.provider_name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {platformLoading && <RowSkeleton />}
+            {!platformLoading && selectedPlatformId && (
+              <Row
+                title={
+                  platforms.find((p) => p.provider_id === selectedPlatformId)?.provider_name ??
+                  "Platform"
+                }
+                items={kidsMode ? fillRow(filterKidsContent(platformItems)) : platformItems}
+              />
+            )}
           </section>
         )}
         {kind === "home" && genreGroups.length > 0 && activeGenre && (
@@ -628,9 +793,7 @@ function BrowsePage() {
               key={activeGenre.id}
               hideTitle
               title={activeGenre.name}
-              items={
-                kidsMode ? fillRow(filterKidsContent(activeGenre.items)) : activeGenre.items
-              }
+              items={kidsMode ? fillRow(filterKidsContent(activeGenre.items)) : activeGenre.items}
             />
           </section>
         )}
