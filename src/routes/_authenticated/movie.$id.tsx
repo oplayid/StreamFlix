@@ -10,7 +10,6 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import {
   Play,
   Share2,
-  Clapperboard,
   ArrowLeft,
   ShieldOff,
   Check,
@@ -51,10 +50,13 @@ import { movieById, loadSimilar, loadRecommendations, getWatchProviders, type Wa
 import { discoverByGenre, fetchTitleLogo, fetchTvSeason } from "@/lib/api/tmdb";
 import { SeasonEpisodePicker } from "@/components/streamflix/SeasonEpisodePicker";
 import { getWatchHistoryFromFirestore } from "@/lib/history-firestore";
-import { TrailerModal } from "@/components/streamflix/TrailerModal";
 import { AgeRatingBadge } from "@/components/streamflix/AgeRatingBadge";
 import { askStreamflixAI } from "@/lib/api/ai";
 import type { Movie } from "@/lib/types";
+
+// MediaFlow owns the banner experience: poster -> muted trailer -> click to full player.
+// Streamflix only supplies one iframe and never parses YouTube or embeds a player here.
+const MEDIAFLOW_BASE = "https://mfp.oplay.id";
 
 function MovieSkeleton() {
   return (
@@ -188,6 +190,7 @@ function MoviePage() {
     "9648": "Mystery",
   };
   const isTv = movie.id.startsWith("tv-");
+  const tmdbId = movie.id.replace(/^tv-/, "");
   const titleLogoUrl = logo?.filePath ? buildTitleLogoUrl(logo.filePath) : null;
   const [descExpanded, setDescExpanded] = useState(false);
   const castScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -213,7 +216,6 @@ function MoviePage() {
     };
   }, [movie.id]);
 
-  const [trailerOpen, setTrailerOpen] = useState(false);
   const [aiSummary, setAiSummary] = useState("");
   const [aiSummaryError, setAiSummaryError] = useState("");
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
@@ -237,6 +239,9 @@ function MoviePage() {
     season: 1,
     episode: 1,
   });
+  const bannerUrl = isTv
+    ? `${MEDIAFLOW_BASE}/banner/tv/${tmdbId}/${playEpisode.season}/${playEpisode.episode}?delay=3000&mute=1&autoplay_trailer=true`
+    : `${MEDIAFLOW_BASE}/banner/movie/${tmdbId}?delay=3000&mute=1&autoplay_trailer=true`;
   const [offers, setOffers] = useState<WatchProvider[]>([]);
   const [offersLoading, setOffersLoading] = useState(true);
   const [showAllOffers, setShowAllOffers] = useState(false);
@@ -402,10 +407,16 @@ function MoviePage() {
     <div className="min-h-dvh bg-background">
       <Navbar />
       <section className="relative pt-16 md:flex md:min-h-[85vh] md:items-center md:pt-20">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[52vh] overflow-hidden sm:h-[58vh] md:inset-y-0 md:h-auto">
-          <img src={movie.backdrop} alt="" className="absolute inset-0 size-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/70 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-[52vh] overflow-hidden sm:h-[58vh] md:inset-y-0 md:h-auto">
+          <iframe
+            src={bannerUrl}
+            title={`Trailer ${movie.title}`}
+            allow="autoplay; encrypted-media; fullscreen"
+            allowFullScreen
+            className="absolute inset-0 size-full border-0"
+          />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background via-background/70 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background to-transparent" />
         </div>
 
         <div className="relative z-10 w-full min-w-0 px-4 py-10 sm:px-8 md:px-12 md:py-16 lg:px-16">
@@ -509,14 +520,6 @@ function MoviePage() {
                   <Play className="size-4 fill-current sm:size-5" />{" "}
                   {isTv ? `Play S${playEpisode.season} E${playEpisode.episode}` : "Play"}
                 </Link>
-                {movie.trailer && (
-                  <button
-                    onClick={() => setTrailerOpen(true)}
-                    className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border px-5 py-2.5 text-sm font-semibold text-foreground hover:bg-white/10 sm:px-6 sm:py-3"
-                  >
-                    <Clapperboard className="size-4 sm:size-5" /> Trailer
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     if (watched) {
@@ -849,9 +852,6 @@ function MoviePage() {
         })}
       </div>
 
-      {trailerOpen && movie.trailer && (
-        <TrailerModal url={movie.trailer} onClose={() => setTrailerOpen(false)} />
-      )}
       <Footer />
     </div>
   );
