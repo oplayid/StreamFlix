@@ -10,8 +10,9 @@ import {
   Minimize2,
   Maximize2,
 } from "lucide-react";
+import Hls from "hls.js";
 import { movieById } from "@/lib/streamflix-data";
-import { recordProgress } from "@/lib/continue-watching";
+import { getContinueWatching, recordProgress } from "@/lib/continue-watching";
 import { saveProgressToFirestore } from "@/lib/continue-watching-firestore";
 import { fetchTvSeason } from "@/lib/api/tmdb";
 import { isPipSupported, enterPictureInPicture, isMobileApp } from "@/lib/mobile";
@@ -64,65 +65,90 @@ function fmt(t: number) {
   return `${m}:${s}`;
 }
 
-// MediaFlow owns the iframe player, the embed-host registry, and failover.
-// Streamflix only points its iframe at MediaFlow and keeps the existing
-// OPLAY_EMBED_* postMessage handling.
-const MEDIAFLOW_EMBED_BASE = "https://mfp.oplay.id";
-const MEDIAFLOW_EMBED_HOSTNAME = new URL(MEDIAFLOW_EMBED_BASE).hostname;
+// MediaFlow is a signed JSON gateway now; Streamflix fetches a stream URL and
+// plays it in a native <video> element (with hls.js where needed).
+const MEDIAFLOW_GATEWAY_BASE = "https://mfp.oplay.id";
 
-function buildEmbedUrl(
+type GatewaySource = { id: string; label: string; url: string };
+type GatewaySubtitle = {
+  id: string;
+  label: string;
+  language: string;
+  format?: string;
+  url: string;
+};
+type GatewayResult = {
+  streamUrl: string;
+  sources: GatewaySource[];
+  subtitles: GatewaySubtitle[];
+  expiresIn: number | null;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+function parseGatewayResponse(payload: unknown): GatewayResult {
+  if (!isRecord(payload)) throw new Error("Respons gateway MediaFlow tidak valid.");
+  const streamUrl = payload.stream_url;
+  if (typeof streamUrl !== "string" || !streamUrl.trim()) {
+    throw new Error("MediaFlow tidak mengembalikan URL stream.");
+  }
+  const sources: GatewaySource[] = Array.isArray(payload.sources)
+    ? payload.sources.filter(
+        (item): item is GatewaySource =>
+          isRecord(item) &&
+          typeof item.id === "string" &&
+          typeof item.label === "string" &&
+          typeof item.url === "string",
+      )
+    : [];
+  const subtitles: GatewaySubtitle[] = Array.isArray(payload.subtitles)
+    ? payload.subtitles.filter(
+        (item): item is GatewaySubtitle =>
+          isRecord(item) &&
+          typeof item.id === "string" &&
+          typeof item.label === "string" &&
+          typeof item.language === "string" &&
+          typeof item.url === "string",
+      )
+    : [];
+  const rawExpiry = payload.expires_in;
+  const expiresIn =
+    typeof rawExpiry === "number" && Number.isFinite(rawExpiry) && rawExpiry > 0
+      ? rawExpiry
+      : null;
+  return { streamUrl: streamUrl.trim(), sources, subtitles, expiresIn };
+}
+
+function buildGatewayUrl(
   movieId: string,
   season: number | undefined,
   episode: number | undefined,
-  autoplay: boolean | undefined,
+  forceRetry: boolean,
 ) {
   const isTv = movieId.startsWith("tv-");
   const tmdbId = isTv ? movieId.slice(3) : movieId;
-  const query = autoplay ? "?autoplay=true" : "";
-  if (isTv) {
-    return `${MEDIAFLOW_EMBED_BASE}/embed/auto/tv/${tmdbId}/${String(season ?? 1)}/${String(episode ?? 1)}${query}`;
-  }
-  return `${MEDIAFLOW_EMBED_BASE}/embed/auto/movie/${tmdbId}${query}`;
+  const path = isTv
+    ? `/gateway/resolve/tv/${encodeURIComponent(tmdbId)}/${String(season ?? 1)}/${String(episode ?? 1)}`
+    : `/gateway/resolve/movie/${encodeURIComponent(tmdbId)}`;
+  return `${MEDIAFLOW_GATEWAY_BASE}${path}${forceRetry ? "?retry=1" : ""}`;
 }
 
-function isEmbedUrl(url: string) {
-  try {
-    return new URL(url).hostname === MEDIAFLOW_EMBED_HOSTNAME;
-  } catch {
-    return false;
-  }
-}
-
-type EmbedPlaybackCommand = "handshake" | "play" | "pause" | "seek" | "requestProgress";
-
-type EmbedPlaybackMessage = {
-  type: "OPLAY_EMBED_PLAYBACK";
-  command: EmbedPlaybackCommand;
-  time?: number;
-};
-
-type EmbedPlaybackResponse = {
-  type: "OPLAY_EMBED_PROGRESS" | "OPLAY_EMBED_READY" | "OPLAY_EMBED_SERVER" | "OPLAY_EMBED_ERROR";
-  currentTime?: number;
-  duration?: number;
-  isPlaying?: boolean;
-  id?: string;
-  name?: string;
-  message?: string;
-};
-
-function sendEmbedPlaybackCommand(
-  iframe: HTMLIFrameElement | null,
-  command: EmbedPlaybackCommand,
-  time?: number,
+function isDefaultGatewaySubtitle(
+  subtitle: GatewaySubtitle,
+  index: number,
+  subtitles: GatewaySubtitle[],
 ) {
-  if (!iframe?.contentWindow) return;
-  const message: EmbedPlaybackMessage = {
-    type: "OPLAY_EMBED_PLAYBACK",
-    command,
-  };
-  if (typeof time === "number") message.time = time;
-  iframe.contentWindow.postMessage(message, "*");
+  const language = subtitle.language.trim().toLowerCase();
+  const hasIndonesian = subtitles.some((item) => item.language.trim().toLowerCase().startsWith("id"));
+  const isPreferred = hasIndonesian ? language.startsWith("id") : language.startsWith("en");
+  return (
+    isPreferred &&
+    subtitles.findIndex((item) => {
+      const candidate = item.language.trim().toLowerCase();
+      return hasIndonesian ? candidate.startsWith("id") : candidate.startsWith("en");
+    }) === index
+  );
 }
 
 function PlayerPage() {
@@ -132,20 +158,33 @@ function PlayerPage() {
 
   const kidsMode = isKidsProfile();
 
-  const [videoUrl, setVideoUrl] = useState<string>("");
-  const mainVideoUrlRef = useRef<string>("");
-  const [mainVideoUrl, setMainVideoUrl] = useState("");
+  const [streamUrl, setStreamUrl] = useState("");
+  const [gatewaySubtitles, setGatewaySubtitles] = useState<GatewaySubtitle[]>([]);
+  const [gatewaySources, setGatewaySources] = useState<GatewaySource[]>([]);
+  const [gatewayLoading, setGatewayLoading] = useState(true);
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+  const [reloadRequest, setReloadRequest] = useState<{ nonce: number; force: boolean }>({
+    nonce: 0,
+    force: false,
+  });
+  const reloadGateway = useCallback((force: boolean) => {
+    setReloadRequest((prev) => ({ nonce: prev.nonce + 1, force }));
+  }, []);
 
   const [currentTime, setCurrentTime] = useState(0);
-  const [mainSourceReady, setMainSourceReady] = useState(false);
-  const resumedRef = useRef(false);
   const pendingSeekRef = useRef<number | null>(null);
+  const playbackPositionRef = useRef(0);
+  const wasPlayingRef = useRef(false);
+  const shouldAutoplayRef = useRef(false);
+  const resumeAppliedRef = useRef(false);
+  const lastMediaKeyRef = useRef<string | null>(null);
+  const lastRecordRef = useRef(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [embedSyncSupported, setEmbedSyncSupported] = useState(false);
-  const lastEmbedProgressRef = useRef(0);
+  const hlsRef = useRef<Hls | null>(null);
   const [savedPosition, setSavedPosition] = useState<number | null>(null);
+  const autoplayRef = useRef(autoplay);
+  autoplayRef.current = autoplay;
 
   const navigate = useNavigate();
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
@@ -189,10 +228,6 @@ function PlayerPage() {
   const timingRef = useRef(timing);
   const [syncAnchors, setSyncAnchors] = useState<Array<{ t: number; cueStart: number }>>([]);
   const [syncHint, setSyncHint] = useState("");
-  // Third-party embeds cannot report playback time, so the subtitle overlay uses
-  // a local clock that the viewer starts/pauses alongside the embed player.
-  const [manualClockRunning, setManualClockRunning] = useState(false);
-  const [manualClockTime, setManualClockTime] = useState(0);
   const [activeCue, setActiveCue] = useState<SubtitleCue | null>(null);
   const subtitleCuesRef = useRef<SubtitleCue[]>([]);
   const [connectionQuality, setConnectionQuality] = useState<string | null>(null);
@@ -208,7 +243,6 @@ function PlayerPage() {
     }
   });
   const [nextEp, setNextEp] = useState<{ season: number; episode: number } | null>(null);
-  const embedEndedFiredRef = useRef(false);
 
   const toggleAutoplayNext = useCallback(() => {
     setAutoplayNext((prev) => {
@@ -258,10 +292,6 @@ function PlayerPage() {
   useEffect(() => {
     checkPipSupport();
   }, [checkPipSupport]);
-
-  useEffect(() => {
-    embedEndedFiredRef.current = false;
-  }, [movie.id, season, episode]);
 
   useEffect(() => {
     if (!isTv || season == null || episode == null) {
@@ -318,10 +348,12 @@ function PlayerPage() {
   const wake = useCallback(() => {
     setShowControls(true);
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    if (!showSettings) {
+    // The native player owns its control bar; keep the page controls visible so
+    // the full-screen wake overlay never covers native play/seek controls.
+    if (!showSettings && !streamUrl) {
       hideTimer.current = window.setTimeout(() => setShowControls(false), 3000);
     }
-  }, [showSettings]);
+  }, [showSettings, streamUrl]);
 
   const toggleFullscreen = useCallback(async () => {
     try {
@@ -540,8 +572,6 @@ function PlayerPage() {
         setSubtitles(tracks);
         setActiveSubtitle(initial);
         setCaptionsEnabled(initial !== null);
-        setManualClockTime(0);
-        setManualClockRunning(false);
 
         // Migrate the old single global offset into the selected track once.
         if (legacyOffset && legacyOffset !== 0 && initial) {
@@ -581,18 +611,7 @@ function PlayerPage() {
     setSyncHint("");
   }, [activeSubtitle, subtitles]);
 
-  const subtitleClockTime = embedSyncSupported ? currentTime : manualClockTime;
-
-  useEffect(() => {
-    if (!manualClockRunning) return;
-    let last = Date.now();
-    const timer = window.setInterval(() => {
-      const tick = Date.now();
-      setManualClockTime((time) => time + (tick - last) / 1000);
-      last = tick;
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [manualClockRunning]);
+  const subtitleClockTime = currentTime;
 
   useEffect(() => {
     // Reverse-transform the playback clock so timing corrections apply to cues.
@@ -829,92 +848,155 @@ function PlayerPage() {
     };
   }, [movie.id]);
 
-  useEffect(() => {
-    const url = buildEmbedUrl(movie.id, season, episode, autoplay);
-    setVideoUrl(url);
-    setMainVideoUrl(url);
-    mainVideoUrlRef.current = url;
-    setEmbedSyncSupported(false);
-  }, [movie.id, season, episode, autoplay]);
+  // Restore the saved position (or the position held before a URL refresh) and
+  // honour ?autoplay exactly once for each resolved stream.
+  const applyResumeAndAutoplay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || resumeAppliedRef.current) return;
+    resumeAppliedRef.current = true;
+    const target = pendingSeekRef.current;
+    pendingSeekRef.current = null;
+    if (target != null && Number.isFinite(target) && target > 0) {
+      const limit =
+        Number.isFinite(video.duration) && video.duration > 0 ? video.duration - 1 : target;
+      try {
+        video.currentTime = Math.min(target, Math.max(0, limit));
+      } catch {}
+    }
+    if (shouldAutoplayRef.current) void video.play().catch(() => {});
+  }, []);
 
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      const iframe = iframeRef.current;
-      if (!iframe || event.source !== iframe.contentWindow) return;
-      const data = event.data as EmbedPlaybackResponse | null;
-      if (!data?.type) return;
+    const mediaKey = `${movie.id}:${season ?? 1}:${episode ?? 1}`;
+    const isMediaChange = lastMediaKeyRef.current !== mediaKey;
+    lastMediaKeyRef.current = mediaKey;
 
-      if (data.type === "OPLAY_EMBED_READY") {
-        setEmbedSyncSupported(true);
-        return;
-      }
+    const controller = new AbortController();
+    let cancelled = false;
+    let expiryTimer: number | null = null;
 
-      // MediaFlow emits this for informational purposes; the active server is
-      // already visible in the player's own switcher inside the iframe.
-      if (data.type === "OPLAY_EMBED_SERVER") {
-        return;
-      }
+    if (isMediaChange) {
+      setStreamUrl("");
+      setGatewaySubtitles([]);
+      setGatewaySources([]);
+      setGatewayError(null);
+      setBuffering(true);
+      setCurrentTime(0);
+      setProgress(0);
+      setDuration(0);
+      setPlaying(false);
+      setEnded(false);
+      playbackPositionRef.current = 0;
+      wasPlayingRef.current = false;
+      lastRecordRef.current = 0;
 
-      if (data.type === "OPLAY_EMBED_ERROR") {
-        toast.error(data.message || "Stream unavailable");
-        return;
-      }
+      const itemId =
+        season != null && episode != null ? `${movie.id}:S${season}E${episode}` : movie.id;
+      const saved = getContinueWatching().find((item) => item.id === itemId);
+      const initialPosition =
+        saved && Number.isFinite(saved.progress) && saved.progress > 0 ? saved.progress : null;
+      setSavedPosition(initialPosition);
+      pendingSeekRef.current = initialPosition;
+      shouldAutoplayRef.current = Boolean(autoplayRef.current);
+    } else {
+      // The signed URL is being refreshed/retried: keep the viewer's position.
+      shouldAutoplayRef.current = wasPlayingRef.current;
+      if (playbackPositionRef.current > 0) pendingSeekRef.current = playbackPositionRef.current;
+    }
+    resumeAppliedRef.current = false;
+    setGatewayLoading(true);
 
-      if (data.type === "OPLAY_EMBED_PROGRESS") {
-        if (typeof data.currentTime !== "number" || typeof data.duration !== "number") return;
-        setCurrentTime(data.currentTime);
-        setDuration(data.duration);
-
-        const elapsed = Math.abs(data.currentTime - lastEmbedProgressRef.current);
-        if (elapsed >= 5 || data.currentTime === 0) {
-          lastEmbedProgressRef.current = data.currentTime;
-          recordProgress(movie, data.currentTime, data.duration, season, episode);
-          saveProgressToFirestore(movie, data.currentTime, data.duration, season, episode).catch(
-            notifySaveError,
-          );
+    (async () => {
+      try {
+        const response = await fetch(
+          buildGatewayUrl(movie.id, season, episode, reloadRequest.force),
+          { method: "GET", signal: controller.signal },
+        );
+        if (!response.ok) {
+          let detail = response.statusText || `HTTP ${response.status}`;
+          try {
+            const body: unknown = await response.json();
+            if (isRecord(body)) {
+              const message = body.message ?? body.error ?? body.detail;
+              if (typeof message === "string" && message.trim()) detail = message;
+            }
+          } catch {}
+          throw new Error(`MediaFlow gateway error (${response.status}): ${detail}`);
         }
+        const result = parseGatewayResponse(await response.json());
+        if (cancelled) return;
+        setGatewaySubtitles(result.subtitles);
+        setGatewaySources(result.sources);
+        setGatewayError(null);
+        setBuffering(true);
+        setStreamUrl(result.streamUrl);
 
-        if (
-          embedSyncSupported &&
-          autoplayNext &&
-          isTv &&
-          data.duration > 0 &&
-          data.currentTime / data.duration >= 0.98 &&
-          !embedEndedFiredRef.current
-        ) {
-          embedEndedFiredRef.current = true;
-          goToNextEpisode();
+        if (result.expiresIn != null) {
+          const delay = Math.max(result.expiresIn * 1000 - 60_000, 30_000);
+          expiryTimer = window.setTimeout(() => {
+            const video = videoRef.current;
+            if (video && !video.paused && !video.ended) reloadGateway(false);
+          }, delay);
         }
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return;
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Gagal memuat stream dari MediaFlow.";
+        setGatewayError(message);
+        toast.error(message);
+      } finally {
+        if (!cancelled) setGatewayLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (expiryTimer != null) window.clearTimeout(expiryTimer);
+    };
+  }, [movie.id, season, episode, reloadRequest, reloadGateway]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!streamUrl || !video) return;
+    resumeAppliedRef.current = false;
+    let hls: Hls | null = null;
+
+    if (/\.m3u8(?:$|[?#])/i.test(streamUrl) && Hls.isSupported()) {
+      hls = new Hls();
+      hlsRef.current = hls;
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, applyResumeAndAutoplay);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal) return;
+        const message = `Stream gagal diputar (${data.details || data.type}).`;
+        toast.error(message);
+        setGatewayError(message);
+      });
+      hls.loadSource(streamUrl);
+    } else {
+      video.src = streamUrl;
+      video.load();
+    }
+
+    return () => {
+      if (hls) {
+        hls.off(Hls.Events.MANIFEST_PARSED, applyResumeAndAutoplay);
+        hls.destroy();
+        if (hlsRef.current === hls) hlsRef.current = null;
+      } else {
+        video.removeAttribute("src");
+        video.load();
       }
     };
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [
-    movie,
-    season,
-    episode,
-    embedSyncSupported,
-    autoplayNext,
-    isTv,
-    goToNextEpisode,
-    notifySaveError,
-  ]);
+  }, [streamUrl, applyResumeAndAutoplay]);
 
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!embedSyncSupported || !iframe) return;
-    const intervalId = window.setInterval(() => {
-      sendEmbedPlaybackCommand(iframe, "requestProgress");
-    }, 5000);
-    return () => window.clearInterval(intervalId);
-  }, [embedSyncSupported]);
-
-  const handleEmbedLoad = () => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    sendEmbedPlaybackCommand(iframe, "handshake");
-    sendEmbedPlaybackCommand(iframe, "requestProgress");
-  };
+  const handleGatewayRetry = useCallback(() => {
+    setGatewayError(null);
+    reloadGateway(true);
+  }, [reloadGateway]);
 
   useEffect(() => {
     const onBlocked = (e: Event) => {
@@ -981,76 +1063,95 @@ function PlayerPage() {
       onMouseMove={wake}
       onTouchEnd={onContainerTouch}
     >
-      {videoUrl ? (
-        isEmbedUrl(videoUrl) ? (
-          <iframe
-            ref={iframeRef}
-            src={videoUrl}
-            title={`Embed Player — ${movie.title}`}
-            allow="autoplay; fullscreen; encrypted-media"
-            allowFullScreen
-            onLoad={handleEmbedLoad}
-            className="size-full border-0"
-          />
-        ) : (
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            playsInline
-            poster={movie.backdrop}
-            onPlay={() => setPlaying(true)}
-            onPause={(e) => {
-              setPlaying(false);
-              doRecord(e.currentTarget.currentTime, e.currentTarget.duration || 0);
-            }}
-            onTimeUpdate={(e) => {
-              const cur = e.currentTarget.currentTime;
-              const dur = e.currentTarget.duration || 1;
-              const now = Date.now();
-              if (now - lastTimeUpdateRef.current >= 1000) {
-                lastTimeUpdateRef.current = now;
-                setProgress(dur > 0 ? (cur / dur) * 100 : 0);
-                setDuration(dur);
-                setCurrentTime(cur);
-              }
-              if (Math.floor(cur) % 5 === 0) doRecord(cur, dur);
-            }}
-            onLoadedMetadata={(e) => {
-              const dur = e.currentTarget.duration;
+      {streamUrl && (
+        <video
+          ref={videoRef}
+          controls
+          playsInline
+          crossOrigin="anonymous"
+          preload="metadata"
+          poster={movie.backdrop}
+          onPlay={() => {
+            setPlaying(true);
+            wasPlayingRef.current = true;
+            setEnded(false);
+          }}
+          onPause={(e) => {
+            setPlaying(false);
+            wasPlayingRef.current = false;
+            doRecord(e.currentTarget.currentTime, e.currentTarget.duration || 0);
+          }}
+          onTimeUpdate={(e) => {
+            const cur = e.currentTarget.currentTime;
+            const dur = e.currentTarget.duration || 1;
+            playbackPositionRef.current = cur;
+            const now = Date.now();
+            if (now - lastTimeUpdateRef.current >= 1000) {
+              lastTimeUpdateRef.current = now;
+              setProgress(dur > 0 ? (cur / dur) * 100 : 0);
               setDuration(dur);
-              if (pendingSeekRef.current != null) {
-                const t = pendingSeekRef.current;
-                pendingSeekRef.current = null;
-                e.currentTarget.currentTime = t;
-              }
-            }}
-            onCanPlay={(e) => {
-              setBuffering(false);
-            }}
-            onVolumeChange={(e) => {
-              setVolume(e.currentTarget.volume);
-              setMuted(e.currentTarget.muted);
-            }}
-            onEnded={handleVideoEnded}
-            onWaiting={() => setBuffering(true)}
-            onPlaying={() => setBuffering(false)}
-            className="size-full object-contain"
-          >
-            {subtitles.map((sub) => (
-              <track
-                key={sub.lang}
-                kind="subtitles"
-                src={sub.url}
-                srcLang={sub.lang}
-                label={sub.label}
-              />
-            ))}
-          </video>
-        )
-      ) : null}
+              setCurrentTime(cur);
+            }
+            if (now - lastRecordRef.current >= 5000 || cur === 0) {
+              lastRecordRef.current = now;
+              doRecord(cur, dur);
+            }
+          }}
+          onLoadedMetadata={(e) => {
+            setDuration(e.currentTarget.duration);
+            applyResumeAndAutoplay();
+          }}
+          onCanPlay={() => setBuffering(false)}
+          onVolumeChange={(e) => {
+            setVolume(e.currentTarget.volume);
+            setMuted(e.currentTarget.muted);
+          }}
+          onEnded={(e) => {
+            const dur = e.currentTarget.duration || 0;
+            doRecord(dur, dur);
+            handleVideoEnded();
+          }}
+          onWaiting={() => setBuffering(true)}
+          onPlaying={() => setBuffering(false)}
+          className="size-full bg-black object-contain"
+        >
+          {gatewaySubtitles.map((sub, index) => (
+            <track
+              key={`gateway-${sub.id}`}
+              kind="subtitles"
+              src={sub.url}
+              srcLang={sub.language}
+              label={sub.label}
+              default={isDefaultGatewaySubtitle(sub, index, gatewaySubtitles)}
+            />
+          ))}
+          {subtitles.map((sub) => (
+            <track
+              key={`custom-${sub.id}`}
+              kind="subtitles"
+              src={sub.url}
+              srcLang={sub.lang}
+              label={sub.label}
+            />
+          ))}
+        </video>
+      )}
 
-      {/* Subtitle overlay for embed players (native video uses <track> elements). */}
-      {isEmbedUrl(videoUrl) && captionsEnabled && activeSubtitle && activeCue && (
+      {gatewayError && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
+          <p className="max-w-lg text-sm text-red-300">{gatewayError}</p>
+          <button
+            type="button"
+            onClick={handleGatewayRetry}
+            className="inline-flex items-center gap-2 rounded bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-white/90"
+          >
+            <RotateCw className="size-4" /> Coba lagi
+          </button>
+        </div>
+      )}
+
+      {/* Custom subtitle overlay (uploads / SubDL); gateway tracks use native <track>. */}
+      {captionsEnabled && activeSubtitle && activeCue && (
         <div
           className="pointer-events-none absolute inset-x-0 bottom-[16%] z-20 flex justify-center px-6 sm:bottom-[12%]"
           aria-live="polite"
@@ -1290,38 +1391,6 @@ function PlayerPage() {
                         )}
                       </div>
 
-                      {isEmbedUrl(videoUrl) && !embedSyncSupported && activeSubtitle && (
-                        <div className="mb-2 rounded border border-white/10 bg-white/5 px-2 py-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] text-white/60">
-                              Subtitle clock {Math.floor(manualClockTime / 60)}:
-                              {String(Math.floor(manualClockTime % 60)).padStart(2, "0")}
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => setManualClockRunning((v) => !v)}
-                                className="rounded bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
-                              >
-                                {manualClockRunning ? "Pause" : "Start"}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setManualClockRunning(false);
-                                  setManualClockTime(0);
-                                }}
-                                className="rounded px-2 py-1 text-[11px] text-white/50 hover:text-white"
-                              >
-                                Reset
-                              </button>
-                            </div>
-                          </div>
-                          <p className="mt-1 text-[10px] leading-tight text-white/40">
-                            Embed players don&apos;t share playback time. Start this clock when the
-                            movie starts, then use &quot;Sinkron di sini&quot; or the timing offset.
-                          </p>
-                        </div>
-                      )}
-
                       <div className="mb-2 rounded border border-white/10 bg-white/5 p-2">
                         <div className="flex items-center justify-between gap-2">
                           <div>
@@ -1505,7 +1574,7 @@ function PlayerPage() {
       )}
 
       {/* Loading spinner */}
-      {buffering && !ended && (
+      {(gatewayLoading || (buffering && !gatewayError)) && !ended && (
         <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
           <Loader className="size-10 text-white/60 animate-spin" />
         </div>
