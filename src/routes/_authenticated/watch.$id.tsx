@@ -73,22 +73,26 @@ interface EmbedServer {
   };
 }
 
+// MediaFlow serves an iframe-compatible player, so the Streamflix player flow
+// (including OPLAY_EMBED_* postMessage sync) does not need to change.
+const MEDIAFLOW_EMBED_BASE = "https://mfp.oplay.id";
+
 // Kept deliberately small: these two were the most reliable in direct probes.
 const availableEmbedServers: EmbedServer[] = [
   {
     id: "vsembed",
     name: "VSEmbed",
     urls: {
-      movie: "https://stream.oplay.id/embed/movie/{id}",
-      tv: "https://stream.oplay.id/embed/tv/{id}/{season}/{episode}",
+      movie: `${MEDIAFLOW_EMBED_BASE}/embed/vsembed/movie/{id}`,
+      tv: `${MEDIAFLOW_EMBED_BASE}/embed/vsembed/tv/{id}/{season}/{episode}`,
     },
   },
   {
     id: "vidcore",
     name: "VidCore",
     urls: {
-      movie: "https://vidcore.org/embed/movie/{id}?autoplay=true&lang=id&theme=FCC217",
-      tv: "https://vidcore.org/embed/tv/{id}/{season}/{episode}?autoplay=true&lang=id&theme=FCC217",
+      movie: `${MEDIAFLOW_EMBED_BASE}/embed/vidcore/movie/{id}?autoplay=true`,
+      tv: `${MEDIAFLOW_EMBED_BASE}/embed/vidcore/tv/{id}/{season}/{episode}?autoplay=true`,
     },
   },
 ];
