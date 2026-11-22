@@ -13,7 +13,7 @@ import {
 import { movieById } from "@/lib/streamflix-data";
 import { recordProgress } from "@/lib/continue-watching";
 import { saveProgressToFirestore } from "@/lib/continue-watching-firestore";
-import { probeEmbedUrl, fetchTvSeason } from "@/lib/api/tmdb";
+import { fetchTvSeason } from "@/lib/api/tmdb";
 import { isPipSupported, enterPictureInPicture, isMobileApp } from "@/lib/mobile";
 import { startSession, endSession } from "@/lib/session-tracking";
 import { toast } from "sonner";
@@ -64,70 +64,24 @@ function fmt(t: number) {
   return `${m}:${s}`;
 }
 
-interface EmbedServer {
-  id: string;
-  name: string;
-  urls: {
-    movie: string;
-    tv: string;
-  };
-}
-
-// MediaFlow serves an iframe-compatible player, so the Streamflix player flow
-// (including OPLAY_EMBED_* postMessage sync) does not need to change.
+// MediaFlow owns the iframe player, the embed-host registry, and failover.
+// Streamflix only points its iframe at MediaFlow and keeps the existing
+// OPLAY_EMBED_* postMessage handling.
 const MEDIAFLOW_EMBED_BASE = "https://mfp.oplay.id";
+const MEDIAFLOW_EMBED_HOSTNAME = new URL(MEDIAFLOW_EMBED_BASE).hostname;
 
-// Kept deliberately small: these two were the most reliable in direct probes.
-const availableEmbedServers: EmbedServer[] = [
-  {
-    id: "vsembed",
-    name: "VSEmbed",
-    urls: {
-      movie: `${MEDIAFLOW_EMBED_BASE}/embed/vsembed/movie/{id}`,
-      tv: `${MEDIAFLOW_EMBED_BASE}/embed/vsembed/tv/{id}/{season}/{episode}`,
-    },
-  },
-  {
-    id: "vidcore",
-    name: "VidCore",
-    urls: {
-      movie: `${MEDIAFLOW_EMBED_BASE}/embed/vidcore/movie/{id}?autoplay=true`,
-      tv: `${MEDIAFLOW_EMBED_BASE}/embed/vidcore/tv/{id}/{season}/{episode}?autoplay=true`,
-    },
-  },
-];
-
-const embedHostnames = new Set(
-  availableEmbedServers.map((server) => {
-    try {
-      return new URL(server.urls.movie).hostname;
-    } catch {
-      return server.urls.movie;
-    }
-  }),
-);
-
-function buildEmbedUrl(
-  serverId: string,
-  movieId: string,
-  season: number | undefined,
-  episode: number | undefined,
-) {
-  const server =
-    availableEmbedServers.find((item) => item.id === serverId) ?? availableEmbedServers[0];
+function buildEmbedUrl(movieId: string, season: number | undefined, episode: number | undefined) {
   const isTv = movieId.startsWith("tv-");
   const tmdbId = isTv ? movieId.slice(3) : movieId;
-  const template = isTv ? server.urls.tv : server.urls.movie;
-  return template
-    .replace("{id}", tmdbId)
-    .replace("{season}", String(season ?? 1))
-    .replace("{episode}", String(episode ?? 1));
+  if (isTv) {
+    return `${MEDIAFLOW_EMBED_BASE}/embed/auto/tv/${tmdbId}/${String(season ?? 1)}/${String(episode ?? 1)}`;
+  }
+  return `${MEDIAFLOW_EMBED_BASE}/embed/auto/movie/${tmdbId}`;
 }
 
 function isEmbedUrl(url: string) {
   try {
-    const hostname = new URL(url).hostname;
-    return embedHostnames.has(hostname);
+    return new URL(url).hostname === MEDIAFLOW_EMBED_HOSTNAME;
   } catch {
     return false;
   }
@@ -142,10 +96,13 @@ type EmbedPlaybackMessage = {
 };
 
 type EmbedPlaybackResponse = {
-  type: "OPLAY_EMBED_PROGRESS" | "OPLAY_EMBED_READY";
+  type: "OPLAY_EMBED_PROGRESS" | "OPLAY_EMBED_READY" | "OPLAY_EMBED_SERVER" | "OPLAY_EMBED_ERROR";
   currentTime?: number;
   duration?: number;
   isPlaying?: boolean;
+  id?: string;
+  name?: string;
+  message?: string;
 };
 
 function sendEmbedPlaybackCommand(
@@ -172,18 +129,6 @@ function PlayerPage() {
   const [videoUrl, setVideoUrl] = useState<string>("");
   const mainVideoUrlRef = useRef<string>("");
   const [mainVideoUrl, setMainVideoUrl] = useState("");
-  const [selectedServerId, setSelectedServerId] = useState<string>(() => {
-    if (typeof window === "undefined") return "vsembed";
-    try {
-      const savedId = localStorage.getItem("sf:embedServer");
-      return availableEmbedServers.some((server) => server.id === savedId) ? savedId! : "vsembed";
-    } catch {
-      return "vsembed";
-    }
-  });
-  const selectedServer =
-    availableEmbedServers.find((server) => server.id === selectedServerId) ??
-    availableEmbedServers[0];
 
   const [currentTime, setCurrentTime] = useState(0);
   const [mainSourceReady, setMainSourceReady] = useState(false);
@@ -258,13 +203,6 @@ function PlayerPage() {
   });
   const [nextEp, setNextEp] = useState<{ season: number; episode: number } | null>(null);
   const embedEndedFiredRef = useRef(false);
-
-  const handleServerSelect = useCallback((id: string) => {
-    setSelectedServerId(id);
-    try {
-      localStorage.setItem("sf:embedServer", id);
-    } catch {}
-  }, []);
 
   const toggleAutoplayNext = useCallback(() => {
     setAutoplayNext((prev) => {
@@ -874,32 +812,6 @@ function PlayerPage() {
     return () => conn.removeEventListener("change", update);
   }, []);
 
-  // server fallback: probe embed servers only when user opens the server picker
-  const probedRef = useRef(false);
-  const probeServers = useCallback(async () => {
-    if (probedRef.current) return;
-    probedRef.current = true;
-    const results = await Promise.all(
-      availableEmbedServers.map(async (s) => ({
-        id: s.id,
-        ok: await probeEmbedUrl({
-          data: { url: buildEmbedUrl(s.id, movie.id, season, episode) },
-        }),
-      })),
-    );
-    const live = results.find((r) => r.ok);
-    const currentOk = results.find((r) => r.id === selectedServerId)?.ok;
-    if (live && !currentOk) {
-      const liveServer = availableEmbedServers.find((s) => s.id === live.id);
-      setSelectedServerId(live.id);
-      toast.warning(
-        `"${selectedServer.name}" was unreachable — switched to ${liveServer?.name ?? live.id}`,
-      );
-    } else if (!currentOk) {
-      toast.error(`${selectedServer.name} is unreachable. Try a different server below.`);
-    }
-  }, [movie.id, season, episode, selectedServerId, selectedServer.name]);
-
   useEffect(() => {
     let sid: string | null = null;
     startSession(movie.id).then((id) => {
@@ -912,12 +824,12 @@ function PlayerPage() {
   }, [movie.id]);
 
   useEffect(() => {
-    const url = buildEmbedUrl(selectedServerId, movie.id, season, episode);
+    const url = buildEmbedUrl(movie.id, season, episode);
     setVideoUrl(url);
     setMainVideoUrl(url);
     mainVideoUrlRef.current = url;
     setEmbedSyncSupported(false);
-  }, [selectedServerId, movie.id, season, episode]);
+  }, [movie.id, season, episode]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -928,6 +840,17 @@ function PlayerPage() {
 
       if (data.type === "OPLAY_EMBED_READY") {
         setEmbedSyncSupported(true);
+        return;
+      }
+
+      // MediaFlow emits this for informational purposes; the active server is
+      // already visible in the player's own switcher inside the iframe.
+      if (data.type === "OPLAY_EMBED_SERVER") {
+        return;
+      }
+
+      if (data.type === "OPLAY_EMBED_ERROR") {
+        toast.error(data.message || "Stream unavailable");
         return;
       }
 
@@ -1190,10 +1113,7 @@ function PlayerPage() {
               </button>
               <div className="relative">
                 <button
-                  onClick={() => {
-                    setShowSettings((v) => !v);
-                    probeServers();
-                  }}
+                  onClick={() => setShowSettings((v) => !v)}
                   aria-label="Settings"
                   className="hover:text-white/70 transition min-h-11 min-w-11 flex items-center justify-center"
                 >
@@ -1203,26 +1123,6 @@ function PlayerPage() {
                   <div
                     className={`absolute top-full right-0 mt-2 ${isTv ? "w-80" : "w-56"} max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-white/10 bg-black/90 p-3 text-sm shadow-2xl backdrop-blur-xl scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent`}
                   >
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/50">
-                      Server
-                    </p>
-                    <div className="grid grid-cols-2 gap-1 mb-3 max-h-40 overflow-y-auto scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
-                      {availableEmbedServers.map((server) => (
-                        <button
-                          key={server.id}
-                          onClick={() => handleServerSelect(server.id)}
-                          className={`rounded px-3 py-1.5 text-xs text-left transition ${selectedServerId === server.id ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
-                        >
-                          {server.name}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/50">
-                      Selected
-                    </p>
-                    <div className="mb-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
-                      {selectedServer.name}
-                    </div>
                     {isTv && (
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
