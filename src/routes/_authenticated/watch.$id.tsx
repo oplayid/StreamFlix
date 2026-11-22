@@ -81,11 +81,25 @@ type GatewayResult = {
   streamUrl: string;
   sources: GatewaySource[];
   subtitles: GatewaySubtitle[];
+  providerSubtitles: GatewaySubtitle[];
   expiresIn: number | null;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+function parseGatewaySubtitles(payload: Record<string, unknown>, key: string): GatewaySubtitle[] {
+  const items = payload[key];
+  if (!Array.isArray(items)) return [];
+  return items.filter(
+    (item): item is GatewaySubtitle =>
+      isRecord(item) &&
+      typeof item.id === "string" &&
+      typeof item.label === "string" &&
+      typeof item.language === "string" &&
+      typeof item.url === "string",
+  );
+}
 
 function parseGatewayResponse(payload: unknown): GatewayResult {
   if (!isRecord(payload)) throw new Error("Respons gateway MediaFlow tidak valid.");
@@ -102,22 +116,16 @@ function parseGatewayResponse(payload: unknown): GatewayResult {
           typeof item.url === "string",
       )
     : [];
-  const subtitles: GatewaySubtitle[] = Array.isArray(payload.subtitles)
-    ? payload.subtitles.filter(
-        (item): item is GatewaySubtitle =>
-          isRecord(item) &&
-          typeof item.id === "string" &&
-          typeof item.label === "string" &&
-          typeof item.language === "string" &&
-          typeof item.url === "string",
-      )
-    : [];
+  // `subtitles` are native host captions (auto-on). `provider_subtitles` come
+  // from a separate subtitle API and stay opt-in.
+  const subtitles = parseGatewaySubtitles(payload, "subtitles");
+  const providerSubtitles = parseGatewaySubtitles(payload, "provider_subtitles");
   const rawExpiry = payload.expires_in;
   const expiresIn =
     typeof rawExpiry === "number" && Number.isFinite(rawExpiry) && rawExpiry > 0
       ? rawExpiry
       : null;
-  return { streamUrl: streamUrl.trim(), sources, subtitles, expiresIn };
+  return { streamUrl: streamUrl.trim(), sources, subtitles, providerSubtitles, expiresIn };
 }
 
 function buildGatewayUrl(
@@ -134,7 +142,7 @@ function buildGatewayUrl(
   return `${MEDIAFLOW_GATEWAY_BASE}${path}${forceRetry ? "?retry=1" : ""}`;
 }
 
-type SubtitleSource = "host" | "external" | "off";
+type SubtitleSource = "host" | "api" | "external" | "off";
 
 function pickHostSubtitleLanguage(subtitles: GatewaySubtitle[]): string | null {
   const languages = subtitles.map((item) => item.language.trim().toLowerCase()).filter(Boolean);
@@ -155,6 +163,7 @@ function PlayerPage() {
 
   const [streamUrl, setStreamUrl] = useState("");
   const [gatewaySubtitles, setGatewaySubtitles] = useState<GatewaySubtitle[]>([]);
+  const [providerSubtitles, setProviderSubtitles] = useState<GatewaySubtitle[]>([]);
   const [gatewaySources, setGatewaySources] = useState<GatewaySource[]>([]);
   const [gatewayLoading, setGatewayLoading] = useState(true);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
@@ -219,6 +228,7 @@ function PlayerPage() {
   );
   const [activeSubtitle, setActiveSubtitle] = useState<string | null>(null);
   const [activeHostSubtitle, setActiveHostSubtitle] = useState<string | null>(null);
+  const [activeProviderSubtitle, setActiveProviderSubtitle] = useState<string | null>(null);
   const [subtitleSource, setSubtitleSource] = useState<SubtitleSource>("host");
   const subtitleSyncRef = useRef<() => void>(() => {});
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
@@ -485,10 +495,25 @@ function PlayerPage() {
     if (!tracks) return;
     const wanted = activeHostSubtitle?.trim().toLowerCase() ?? "";
     const showHost = subtitleSource === "host" && captionsEnabled && Boolean(wanted);
-    let shown = false;
+    const showProvider =
+      subtitleSource === "api" && captionsEnabled && Boolean(activeProviderSubtitle);
+    let hostShown = false;
+    let providerShown = false;
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
-      if (!showHost) {
+      const label = track.label || "";
+      if (label.startsWith("api:")) {
+        // Provider API tracks are identified by label so a host track with the
+        // same language can never be mistaken for them.
+        const shouldShow =
+          showProvider && label === `api:${activeProviderSubtitle}` && !providerShown;
+        if (shouldShow) providerShown = true;
+        if (track.mode !== (shouldShow ? "showing" : "disabled")) {
+          track.mode = shouldShow ? "showing" : "disabled";
+        }
+        continue;
+      }
+      if (!showHost || hostShown) {
         if (track.mode !== "disabled") track.mode = "disabled";
         continue;
       }
@@ -496,14 +521,14 @@ function PlayerPage() {
       const matches =
         Boolean(lang) &&
         (lang === wanted || lang.startsWith(`${wanted}-`) || wanted.startsWith(`${lang}-`));
-      if (matches && !shown) {
-        shown = true;
+      if (matches) {
+        hostShown = true;
         if (track.mode !== "showing") track.mode = "showing";
       } else if (track.mode !== "disabled") {
         track.mode = "disabled";
       }
     }
-  }, [activeHostSubtitle, captionsEnabled, subtitleSource]);
+  }, [activeHostSubtitle, activeProviderSubtitle, captionsEnabled, subtitleSource]);
 
   useEffect(() => {
     subtitleSyncRef.current = updateSubtitleTracks;
@@ -531,7 +556,15 @@ function PlayerPage() {
 
   const handleHostSubtitleChange = (lang: string) => {
     setActiveHostSubtitle(lang);
+    setActiveProviderSubtitle(null);
     setSubtitleSource("host");
+    if (!captionsEnabled) setCaptionsEnabled(true);
+  };
+
+  const handleProviderSubtitleChange = (id: string) => {
+    setActiveProviderSubtitle(id);
+    setActiveHostSubtitle(null);
+    setSubtitleSource("api");
     if (!captionsEnabled) setCaptionsEnabled(true);
   };
 
@@ -539,6 +572,7 @@ function PlayerPage() {
     setActiveSubtitle(lang);
     persistSubtitleChoice(lang);
     if (lang === null) {
+      setActiveProviderSubtitle(null);
       setSubtitleSource("off");
       setCaptionsEnabled(false);
       return;
@@ -595,8 +629,9 @@ function PlayerPage() {
         if (cancelled) return;
         setSubtitles(tracks);
         setActiveSubtitle(initial);
-        // Host captions are the default; external tracks stay available as an
-        // alternative choice and never take over playback automatically.
+        // Host captions are the default; provider/external tracks stay
+        // available as alternative choices and never auto-take over playback.
+        setActiveProviderSubtitle(null);
         setSubtitleSource("host");
         setCaptionsEnabled(true);
 
@@ -905,6 +940,7 @@ function PlayerPage() {
     if (isMediaChange) {
       setStreamUrl("");
       setGatewaySubtitles([]);
+      setProviderSubtitles([]);
       setGatewaySources([]);
       setGatewayError(null);
       setBuffering(true);
@@ -954,7 +990,9 @@ function PlayerPage() {
         if (cancelled) return;
         const hostLanguage = pickHostSubtitleLanguage(result.subtitles);
         setGatewaySubtitles(result.subtitles);
+        setProviderSubtitles(result.providerSubtitles);
         setActiveHostSubtitle(hostLanguage);
+        setActiveProviderSubtitle(null);
         if (hostLanguage) setSubtitleSource("host");
         setGatewaySources(result.sources);
         setGatewayError(null);
@@ -1161,6 +1199,15 @@ function PlayerPage() {
               }
             />
           ))}
+          {providerSubtitles.map((sub) => (
+            <track
+              key={`provider-${sub.id}`}
+              kind="subtitles"
+              src={sub.url}
+              srcLang={sub.language}
+              label={`api:${sub.id}`}
+            />
+          ))}
           {subtitles.map((sub) => (
             <track
               key={`custom-${sub.id}`}
@@ -1329,6 +1376,26 @@ function PlayerPage() {
                           );
                         })}
                       </div>
+
+                      {providerSubtitles.length > 0 && (
+                        <div className="mb-2 flex flex-wrap items-center gap-1">
+                          <span className="mr-1 text-[11px] uppercase tracking-wide text-white/40">
+                            API
+                          </span>
+                          {providerSubtitles.map((sub) => (
+                            <button
+                              key={`api-${sub.id}`}
+                              onClick={() => handleProviderSubtitleChange(sub.id)}
+                              className={`rounded px-3 py-1.5 text-xs transition ${subtitleSource === "api" && activeProviderSubtitle === sub.id ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+                            >
+                              <span className="font-semibold">
+                                {languageLabel(sub.language.trim().toLowerCase())}
+                              </span>
+                              <span className="ml-1 text-white/40">API</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
                       <div className="mb-2 flex flex-wrap items-center gap-1">
                         <span className="mr-1 text-[11px] uppercase tracking-wide text-white/40">
