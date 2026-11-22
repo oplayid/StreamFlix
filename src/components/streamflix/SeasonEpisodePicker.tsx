@@ -154,10 +154,7 @@ export function SeasonEpisodePicker({
                   to="/watch/$id"
                   params={{ id: movieId }}
                   search={{
-                    season:
-                      ep.episode_number === currentEpisode && selectedSeason === currentSeason
-                        ? undefined
-                        : selectedSeason,
+                    season: selectedSeason,
                     episode: ep.episode_number,
                   }}
                   className="flex min-w-0 flex-1 items-center gap-2.5"

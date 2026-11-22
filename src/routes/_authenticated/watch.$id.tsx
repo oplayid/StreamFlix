@@ -70,13 +70,19 @@ function fmt(t: number) {
 const MEDIAFLOW_EMBED_BASE = "https://mfp.oplay.id";
 const MEDIAFLOW_EMBED_HOSTNAME = new URL(MEDIAFLOW_EMBED_BASE).hostname;
 
-function buildEmbedUrl(movieId: string, season: number | undefined, episode: number | undefined) {
+function buildEmbedUrl(
+  movieId: string,
+  season: number | undefined,
+  episode: number | undefined,
+  autoplay: boolean | undefined,
+) {
   const isTv = movieId.startsWith("tv-");
   const tmdbId = isTv ? movieId.slice(3) : movieId;
+  const query = autoplay ? "?autoplay=true" : "";
   if (isTv) {
-    return `${MEDIAFLOW_EMBED_BASE}/embed/auto/tv/${tmdbId}/${String(season ?? 1)}/${String(episode ?? 1)}`;
+    return `${MEDIAFLOW_EMBED_BASE}/embed/auto/tv/${tmdbId}/${String(season ?? 1)}/${String(episode ?? 1)}${query}`;
   }
-  return `${MEDIAFLOW_EMBED_BASE}/embed/auto/movie/${tmdbId}`;
+  return `${MEDIAFLOW_EMBED_BASE}/embed/auto/movie/${tmdbId}${query}`;
 }
 
 function isEmbedUrl(url: string) {
@@ -122,7 +128,7 @@ function sendEmbedPlaybackCommand(
 function PlayerPage() {
   const data = Route.useLoaderData();
   const movie = data?.movie;
-  const { season, episode } = Route.useSearch();
+  const { season, episode, autoplay } = Route.useSearch();
 
   const kidsMode = isKidsProfile();
 
@@ -824,12 +830,12 @@ function PlayerPage() {
   }, [movie.id]);
 
   useEffect(() => {
-    const url = buildEmbedUrl(movie.id, season, episode);
+    const url = buildEmbedUrl(movie.id, season, episode, autoplay);
     setVideoUrl(url);
     setMainVideoUrl(url);
     mainVideoUrlRef.current = url;
     setEmbedSyncSupported(false);
-  }, [movie.id, season, episode]);
+  }, [movie.id, season, episode, autoplay]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
