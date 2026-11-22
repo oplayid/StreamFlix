@@ -134,20 +134,15 @@ function buildGatewayUrl(
   return `${MEDIAFLOW_GATEWAY_BASE}${path}${forceRetry ? "?retry=1" : ""}`;
 }
 
-function isDefaultGatewaySubtitle(
-  subtitle: GatewaySubtitle,
-  index: number,
-  subtitles: GatewaySubtitle[],
-) {
-  const language = subtitle.language.trim().toLowerCase();
-  const hasIndonesian = subtitles.some((item) => item.language.trim().toLowerCase().startsWith("id"));
-  const isPreferred = hasIndonesian ? language.startsWith("id") : language.startsWith("en");
+type SubtitleSource = "host" | "external" | "off";
+
+function pickHostSubtitleLanguage(subtitles: GatewaySubtitle[]): string | null {
+  const languages = subtitles.map((item) => item.language.trim().toLowerCase()).filter(Boolean);
   return (
-    isPreferred &&
-    subtitles.findIndex((item) => {
-      const candidate = item.language.trim().toLowerCase();
-      return hasIndonesian ? candidate.startsWith("id") : candidate.startsWith("en");
-    }) === index
+    languages.find((lang) => lang.startsWith("id")) ??
+    languages.find((lang) => lang.startsWith("en")) ??
+    languages[0] ??
+    null
   );
 }
 
@@ -223,6 +218,9 @@ function PlayerPage() {
       window.innerHeight > window.innerWidth,
   );
   const [activeSubtitle, setActiveSubtitle] = useState<string | null>(null);
+  const [activeHostSubtitle, setActiveHostSubtitle] = useState<string | null>(null);
+  const [subtitleSource, setSubtitleSource] = useState<SubtitleSource>("host");
+  const subtitleSyncRef = useRef<() => void>(() => {});
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [timing, setTiming] = useState({ offset: 0, scale: 1 });
   const timingRef = useRef(timing);
@@ -482,18 +480,46 @@ function PlayerPage() {
     }
   };
 
-  const updateSubtitleTracks = useCallback((lang: string | null, enabled: boolean) => {
+  const updateSubtitleTracks = useCallback(() => {
     const tracks = videoRef.current?.textTracks;
     if (!tracks) return;
+    const wanted = activeHostSubtitle?.trim().toLowerCase() ?? "";
+    const showHost = subtitleSource === "host" && captionsEnabled && Boolean(wanted);
+    let shown = false;
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
-      if (!enabled) {
+      if (!showHost) {
+        if (track.mode !== "disabled") track.mode = "disabled";
+        continue;
+      }
+      const lang = (track.language || "").trim().toLowerCase();
+      const matches =
+        Boolean(lang) &&
+        (lang === wanted || lang.startsWith(`${wanted}-`) || wanted.startsWith(`${lang}-`));
+      if (matches && !shown) {
+        shown = true;
+        if (track.mode !== "showing") track.mode = "showing";
+      } else if (track.mode !== "disabled") {
         track.mode = "disabled";
-      } else {
-        track.mode = lang && track.language === lang ? "showing" : "disabled";
       }
     }
-  }, []);
+  }, [activeHostSubtitle, captionsEnabled, subtitleSource]);
+
+  useEffect(() => {
+    subtitleSyncRef.current = updateSubtitleTracks;
+    updateSubtitleTracks();
+  }, [updateSubtitleTracks]);
+
+  // Native <track> elements arrive asynchronously (especially with hls.js), so
+  // re-assert the host track whenever a new one is added for this stream.
+  useEffect(() => {
+    const tracks = videoRef.current?.textTracks;
+    if (!tracks) return;
+    const sync = () => subtitleSyncRef.current();
+    tracks.addEventListener("addtrack", sync);
+    sync();
+    return () => tracks.removeEventListener("addtrack", sync);
+  }, [streamUrl]);
 
   const persistSubtitleChoice = (lang: string | null) => {
     if (!movie?.id) return;
@@ -503,29 +529,27 @@ function PlayerPage() {
     } catch {}
   };
 
+  const handleHostSubtitleChange = (lang: string) => {
+    setActiveHostSubtitle(lang);
+    setSubtitleSource("host");
+    if (!captionsEnabled) setCaptionsEnabled(true);
+  };
+
   const handleSubtitleChange = (lang: string | null) => {
     setActiveSubtitle(lang);
     persistSubtitleChoice(lang);
     if (lang === null) {
+      setSubtitleSource("off");
       setCaptionsEnabled(false);
-      updateSubtitleTracks(null, false);
       return;
     }
+    setSubtitleSource("external");
     if (!captionsEnabled) setCaptionsEnabled(true);
-    updateSubtitleTracks(lang, true);
   };
 
-  useEffect(() => {
-    updateSubtitleTracks(activeSubtitle, captionsEnabled);
-  }, [activeSubtitle, captionsEnabled, updateSubtitleTracks]);
-
   const toggleCaptions = useCallback(() => {
-    setCaptionsEnabled((prev) => {
-      const next = !prev;
-      updateSubtitleTracks(activeSubtitle, next);
-      return next;
-    });
-  }, [activeSubtitle, updateSubtitleTracks]);
+    setCaptionsEnabled((prev) => !prev);
+  }, []);
 
   // --- Custom subtitles (own uploads and third-party URLs) ---
   const clampTiming = (value: { offset: number; scale: number }) => ({
@@ -571,7 +595,10 @@ function PlayerPage() {
         if (cancelled) return;
         setSubtitles(tracks);
         setActiveSubtitle(initial);
-        setCaptionsEnabled(initial !== null);
+        // Host captions are the default; external tracks stay available as an
+        // alternative choice and never take over playback automatically.
+        setSubtitleSource("host");
+        setCaptionsEnabled(true);
 
         // Migrate the old single global offset into the selected track once.
         if (legacyOffset && legacyOffset !== 0 && initial) {
@@ -804,7 +831,7 @@ function PlayerPage() {
       await deleteSubtitle(track.id);
       const tracks = await listSubtitles(movie?.id ?? "");
       setSubtitles(tracks);
-      if (activeSubtitle === track.lang) {
+      if (subtitleSource === "external" && activeSubtitle === track.lang) {
         const fallback = pickInitialSubtitle(tracks, null);
         setActiveSubtitle(fallback);
         setCaptionsEnabled(fallback !== null);
@@ -925,7 +952,10 @@ function PlayerPage() {
         }
         const result = parseGatewayResponse(await response.json());
         if (cancelled) return;
+        const hostLanguage = pickHostSubtitleLanguage(result.subtitles);
         setGatewaySubtitles(result.subtitles);
+        setActiveHostSubtitle(hostLanguage);
+        if (hostLanguage) setSubtitleSource("host");
         setGatewaySources(result.sources);
         setGatewayError(null);
         setBuffering(true);
@@ -1122,7 +1152,13 @@ function PlayerPage() {
               src={sub.url}
               srcLang={sub.language}
               label={sub.label}
-              default={isDefaultGatewaySubtitle(sub, index, gatewaySubtitles)}
+              default={
+                subtitleSource === "host" &&
+                sub.language.trim().toLowerCase() === activeHostSubtitle &&
+                gatewaySubtitles.findIndex(
+                  (item) => item.language.trim().toLowerCase() === activeHostSubtitle,
+                ) === index
+              }
             />
           ))}
           {subtitles.map((sub) => (
@@ -1150,8 +1186,8 @@ function PlayerPage() {
         </div>
       )}
 
-      {/* Custom subtitle overlay (uploads / SubDL); gateway tracks use native <track>. */}
-      {captionsEnabled && activeSubtitle && activeCue && (
+      {/* Custom subtitle overlay (uploads / SubDL); host tracks use native <track>. */}
+      {subtitleSource === "external" && captionsEnabled && activeSubtitle && activeCue && (
         <div
           className="pointer-events-none absolute inset-x-0 bottom-[16%] z-20 flex justify-center px-6 sm:bottom-[12%]"
           aria-live="polite"
@@ -1265,7 +1301,7 @@ function PlayerPage() {
                         </p>
                         <button
                           onClick={toggleCaptions}
-                          disabled={!activeSubtitle}
+                          disabled={subtitleSource === "off"}
                           className={`rounded px-3 py-1.5 text-xs transition disabled:opacity-40 ${captionsEnabled ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
                         >
                           Captions {captionsEnabled ? "On" : "Off"}
@@ -1275,15 +1311,34 @@ function PlayerPage() {
                       <div className="mb-2 flex flex-wrap gap-1">
                         <button
                           onClick={() => handleSubtitleChange(null)}
-                          className={`rounded px-3 py-1.5 text-xs transition ${activeSubtitle === null ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+                          className={`rounded px-3 py-1.5 text-xs transition ${subtitleSource === "off" ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
                         >
                           Off
                         </button>
+                        {gatewaySubtitles.map((sub) => {
+                          const lang = sub.language.trim().toLowerCase();
+                          return (
+                            <button
+                              key={`host-${sub.id}`}
+                              onClick={() => handleHostSubtitleChange(lang)}
+                              className={`rounded px-3 py-1.5 text-xs transition ${subtitleSource === "host" && activeHostSubtitle === lang ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+                            >
+                              <span className="font-semibold">{languageLabel(lang)}</span>
+                              <span className="ml-1 text-white/40">Host</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mb-2 flex flex-wrap items-center gap-1">
+                        <span className="mr-1 text-[11px] uppercase tracking-wide text-white/40">
+                          Eksternal
+                        </span>
                         {subtitles.map((sub) => (
                           <button
                             key={sub.id}
                             onClick={() => handleSubtitleChange(sub.lang)}
-                            className={`rounded px-3 py-1.5 text-xs transition ${activeSubtitle === sub.lang ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+                            className={`rounded px-3 py-1.5 text-xs transition ${subtitleSource === "external" && activeSubtitle === sub.lang ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
                           >
                             <span className="font-semibold">{languageLabel(sub.lang)}</span>
                             {sub.label !== languageLabel(sub.lang) && (
@@ -1295,8 +1350,8 @@ function PlayerPage() {
 
                       {subtitles.length === 0 && (
                         <p className="mb-2 text-[11px] text-white/50">
-                          No subtitles yet. Upload a .vtt/.srt file or add a third-party subtitle
-                          URL below.
+                          Belum ada subtitle eksternal. Upload .vtt/.srt atau tambahkan URL/subtitle
+                          SubDL di bawah.
                         </p>
                       )}
 
