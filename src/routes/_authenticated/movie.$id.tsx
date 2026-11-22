@@ -407,7 +407,7 @@ function MoviePage() {
     <div className="min-h-dvh bg-background">
       <Navbar />
       <section className="relative pt-16 md:flex md:min-h-[85vh] md:items-center md:pt-20">
-        <div className="absolute inset-x-0 top-0 h-[52vh] overflow-hidden sm:h-[58vh] md:inset-y-0 md:h-auto">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[52vh] overflow-hidden sm:h-[58vh] md:inset-y-0 md:h-auto">
           <iframe
             src={bannerUrl}
             title={`Trailer ${movie.title}`}
