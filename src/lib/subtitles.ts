@@ -487,6 +487,109 @@ export function importSubdlSubtitle(input: {
   return importSubdl({ data: input });
 }
 
+// ---------------------------------------------------------------------------
+// mfp.oplay.id shared subtitle bridge
+//
+// SubDL is searched and imported inside the mfp iframe. When a viewer picks a
+// result, mfp emits `subdlImported` and Streamflix stores the VTT as a shared
+// track (userId: null) so every account can restore it. No schema change: the
+// existing subtitles collection and externalId dedupe key are reused.
+// ---------------------------------------------------------------------------
+
+const MFP_ORIGIN = "https://mfp.oplay.id";
+
+export type SharedMfpSubtitle = {
+  id: string;
+  lang: string;
+  label: string;
+  content: string;
+  externalId: string;
+};
+
+const storeMfpSubtitle = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      mediaId: mediaIdSchema,
+      lang: z.string().min(2).max(20),
+      label: z.string().min(1).max(120),
+      downloadPath: z.string().min(1).max(500),
+      url: z.string().url().max(2000),
+    }),
+  )
+  .handler(async ({ data }): Promise<SubtitleTrack> => {
+    const { requireUser } = await import("./auth");
+    await requireUser(); // only signed-in viewers may seed a shared track
+    const downloadPath = sanitizeSubdlPath(data.downloadPath);
+    const signed = new URL(data.url);
+    if (signed.origin !== MFP_ORIGIN || !signed.pathname.startsWith("/_token_")) {
+      throw new Error("URL subtitle MediaFlow tidak dikenali");
+    }
+
+    // The VTT lives behind mfp's signed capability URL. The key never travels
+    // to the browser; Streamflix fetches server-side and stores the content.
+    const res = await fetch(signed, {
+      headers: { "User-Agent": "OPLAY.ID-SubDL/1.0", Accept: "text/vtt,*/*" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`Gagal mengambil subtitle MediaFlow (${res.status})`);
+    const content = toWebVtt(await res.text());
+
+    const col = await collection<SubtitleDoc>("subtitles");
+    const externalId = `subdl:${downloadPath}`;
+    const existing = await col.findOne({ externalId });
+    if (existing) return publicTrack(existing, null);
+
+    const doc: SubtitleDoc = {
+      _id: randomUUID(),
+      mediaId: data.mediaId,
+      userId: null,
+      lang: normalizeLang(data.lang),
+      label: data.label.slice(0, 60),
+      source: "subdl",
+      origin: "mfp.oplay.id",
+      externalId,
+      content,
+      createdAt: now(),
+    };
+    await col.insertOne(doc);
+    return publicTrack(doc, null);
+  });
+
+const readSharedMfpSubtitles = createServerFn({ method: "GET" })
+  .validator(z.object({ mediaId: mediaIdSchema }))
+  .handler(async ({ data }): Promise<SharedMfpSubtitle[]> => {
+    const col = await collection<SubtitleDoc>("subtitles");
+    const docs = await col
+      .find({
+        userId: null,
+        origin: "mfp.oplay.id",
+        $or: [{ mediaId: data.mediaId }, { mediaId: data.mediaId.replace(/^tv-/, "") }],
+      })
+      .sort({ createdAt: 1 })
+      .toArray();
+    return docs.map((doc) => ({
+      id: doc._id,
+      lang: doc.lang,
+      label: doc.label,
+      content: doc.content,
+      externalId: doc.externalId ?? "",
+    }));
+  });
+
+export function saveMfpSubtitle(input: {
+  mediaId: string;
+  lang: string;
+  label: string;
+  downloadPath: string;
+  url: string;
+}): Promise<SubtitleTrack> {
+  return storeMfpSubtitle({ data: input });
+}
+
+export function sharedMfpSubtitles(mediaId: string): Promise<SharedMfpSubtitle[]> {
+  return readSharedMfpSubtitles({ data: { mediaId } });
+}
+
 /** Client-side WebVTT cue parser used for the embed overlay. */
 export type SubtitleCue = { start: number; end: number; text: string };
 

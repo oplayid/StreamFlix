@@ -1,9 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Loader } from "lucide-react";
 import { movieById } from "@/lib/streamflix-data";
 import { seoMetaFor } from "@/lib/seo";
+import { saveMfpSubtitle, sharedMfpSubtitles } from "@/lib/subtitles";
 
 const watchSearchSchema = z.object({
   season: z.number().optional(),
@@ -27,6 +28,17 @@ function buildGatewayUrl(
   return `${MEDIAFLOW_ORIGIN}/gateway/resolve/movie/${encodeURIComponent(id)}`;
 }
 
+type MfpMessage = {
+  source?: unknown;
+  type?: unknown;
+  track?: {
+    lang?: unknown;
+    label?: unknown;
+    downloadPath?: unknown;
+    url?: unknown;
+  };
+};
+
 function parsePlayerUrl(payload: unknown): string {
   if (typeof payload !== "object" || payload === null) {
     throw new Error("Respons gateway MediaFlow tidak valid.");
@@ -49,6 +61,7 @@ function PlayerPage() {
 
   const [playerUrl, setPlayerUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const mediaId = movie?.id ?? "";
 
@@ -73,6 +86,47 @@ function PlayerPage() {
 
     return () => controller.abort();
   }, [mediaId, season, episode]);
+
+  // Subtitle bridge: mfp owns search/import and playback; Streamflix only
+  // persists shared tracks and sends them back when a new iframe is ready.
+  useEffect(() => {
+    if (!mediaId) return;
+
+    function restoreShared() {
+      sharedMfpSubtitles(mediaId)
+        .then((tracks) => {
+          const target = iframeRef.current?.contentWindow;
+          if (!target || tracks.length === 0) return;
+          target.postMessage({ type: "mfp:restoreSubtitles", tracks }, MEDIAFLOW_ORIGIN);
+        })
+        .catch(() => {});
+    }
+
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== MEDIAFLOW_ORIGIN) return;
+      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
+      const data = event.data as MfpMessage | null;
+      if (!data || typeof data !== "object" || data.source !== "mfp-player") return;
+
+      if (data.type === "ready") {
+        restoreShared();
+        return;
+      }
+      if (data.type !== "subdlImported" || !data.track) return;
+
+      const track = data.track;
+      const lang = typeof track.lang === "string" ? track.lang : "en";
+      const label = typeof track.label === "string" ? track.label : "SubDL";
+      const downloadPath = typeof track.downloadPath === "string" ? track.downloadPath : "";
+      const url = typeof track.url === "string" ? track.url : "";
+      if (!downloadPath || !url) return;
+
+      saveMfpSubtitle({ mediaId, lang, label, downloadPath, url }).catch(() => {});
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [mediaId]);
 
   const goBack = () => {
     if (!mediaId) return;
@@ -102,6 +156,7 @@ function PlayerPage() {
         <section className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black shadow-2xl">
           {playerUrl && (
             <iframe
+              ref={iframeRef}
               src={playerUrl}
               title="MediaFlow Player"
               allow="autoplay; fullscreen; picture-in-picture"
