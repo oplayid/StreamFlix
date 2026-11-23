@@ -83,43 +83,47 @@ function PlayerPage() {
   const episodeLabel = season != null && episode != null ? ` • S${season} E${episode}` : "";
 
   return (
-    <main className="relative size-dvh overflow-hidden bg-black text-white">
-      {playerUrl && (
-        <iframe
-          src={playerUrl}
-          title="MediaFlow Player"
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowFullScreen
-          className="absolute inset-0 size-full border-0 bg-black"
-        />
-      )}
+    <main className="relative h-dvh w-screen overflow-hidden bg-background text-foreground">
+      <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3 p-3 sm:gap-4 sm:p-6">
+        <div className="flex shrink-0 items-center">
+          <button
+            type="button"
+            onClick={goBack}
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-foreground/90 transition hover:bg-muted hover:text-foreground"
+          >
+            <ArrowLeft className="size-6" />
+            <span className="text-sm font-semibold sm:text-base">
+              {label}
+              <span className="ml-2 font-normal text-muted-foreground">{episodeLabel}</span>
+            </span>
+          </button>
+        </div>
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/80 to-transparent px-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] sm:px-6">
-        <button
-          type="button"
-          onClick={goBack}
-          className="pointer-events-auto inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-white/90 transition hover:bg-white/10 hover:text-white"
-        >
-          <ArrowLeft className="size-6" />
-          <span className="text-sm font-semibold drop-shadow-md sm:text-base">
-            {label}
-            <span className="ml-2 font-normal text-white/60">{episodeLabel}</span>
-          </span>
-        </button>
+        <section className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black shadow-2xl">
+          {playerUrl && (
+            <iframe
+              src={playerUrl}
+              title="MediaFlow Player"
+              allow="autoplay; fullscreen; picture-in-picture"
+              allowFullScreen
+              className="h-full w-full border-0 bg-black"
+            />
+          )}
+
+          {!playerUrl && !error && (
+            <div className="absolute inset-0 grid place-items-center gap-3 bg-black text-sm text-white/60">
+              <Loader className="size-6 animate-spin" aria-hidden="true" />
+              <span>Menyiapkan player…</span>
+            </div>
+          )}
+
+          {error && (
+            <div className="absolute inset-0 grid place-items-center bg-black px-6 text-center">
+              <p className="max-w-lg text-sm text-red-300">{error}</p>
+            </div>
+          )}
+        </section>
       </div>
-
-      {!playerUrl && !error && (
-        <div className="absolute inset-0 grid place-items-center bg-black text-sm text-white/60">
-          <Loader className="size-6 animate-spin" aria-hidden="true" />
-          <span className="sr-only">Menyiapkan player…</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="absolute inset-0 grid place-items-center bg-black px-6 text-center">
-          <p className="max-w-lg text-sm text-red-300">{error}</p>
-        </div>
-      )}
     </main>
   );
 }
