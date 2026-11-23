@@ -10,7 +10,6 @@ import {
   Minimize2,
   Maximize2,
 } from "lucide-react";
-import Hls from "hls.js";
 import { movieById } from "@/lib/streamflix-data";
 import { getContinueWatching, recordProgress } from "@/lib/continue-watching";
 import { saveProgressToFirestore } from "@/lib/continue-watching-firestore";
@@ -65,8 +64,8 @@ function fmt(t: number) {
   return `${m}:${s}`;
 }
 
-// MediaFlow is a signed JSON gateway now; Streamflix fetches a stream URL and
-// plays it in a native <video> element (with hls.js where needed).
+// MediaFlow owns the smart player now. Streamflix only obtains an opaque
+// iframe URL from the gateway; playback, host scoring and subtitles live there.
 const MEDIAFLOW_GATEWAY_BASE = "https://mfp.oplay.id";
 
 type GatewaySource = { id: string; label: string; url: string };
@@ -78,6 +77,7 @@ type GatewaySubtitle = {
   url: string;
 };
 type GatewayResult = {
+  playerUrl: string;
   streamUrl: string;
   sources: GatewaySource[];
   subtitles: GatewaySubtitle[];
@@ -103,9 +103,9 @@ function parseGatewaySubtitles(payload: Record<string, unknown>, key: string): G
 
 function parseGatewayResponse(payload: unknown): GatewayResult {
   if (!isRecord(payload)) throw new Error("Respons gateway MediaFlow tidak valid.");
-  const streamUrl = payload.stream_url;
-  if (typeof streamUrl !== "string" || !streamUrl.trim()) {
-    throw new Error("MediaFlow tidak mengembalikan URL stream.");
+  const playerUrl = payload.player_url;
+  if (typeof playerUrl !== "string" || !playerUrl.trim()) {
+    throw new Error("MediaFlow tidak mengembalikan URL player.");
   }
   const sources: GatewaySource[] = Array.isArray(payload.sources)
     ? payload.sources.filter(
@@ -125,7 +125,14 @@ function parseGatewayResponse(payload: unknown): GatewayResult {
     typeof rawExpiry === "number" && Number.isFinite(rawExpiry) && rawExpiry > 0
       ? rawExpiry
       : null;
-  return { streamUrl: streamUrl.trim(), sources, subtitles, providerSubtitles, expiresIn };
+  return {
+    playerUrl: playerUrl.trim(),
+    streamUrl: typeof payload.stream_url === "string" ? payload.stream_url : "",
+    sources,
+    subtitles,
+    providerSubtitles,
+    expiresIn,
+  };
 }
 
 function buildGatewayUrl(
@@ -161,6 +168,7 @@ function PlayerPage() {
 
   const kidsMode = isKidsProfile();
 
+  const [playerUrl, setPlayerUrl] = useState("");
   const [streamUrl, setStreamUrl] = useState("");
   const [gatewaySubtitles, setGatewaySubtitles] = useState<GatewaySubtitle[]>([]);
   const [providerSubtitles, setProviderSubtitles] = useState<GatewaySubtitle[]>([]);
@@ -185,7 +193,8 @@ function PlayerPage() {
   const lastRecordRef = useRef(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
+  const playerFrameRef = useRef<HTMLIFrameElement>(null);
+  const hlsRef = useRef<unknown | null>(null);
   const [savedPosition, setSavedPosition] = useState<number | null>(null);
   const autoplayRef = useRef(autoplay);
   autoplayRef.current = autoplay;
@@ -938,6 +947,7 @@ function PlayerPage() {
     let expiryTimer: number | null = null;
 
     if (isMediaChange) {
+      setPlayerUrl("");
       setStreamUrl("");
       setGatewaySubtitles([]);
       setProviderSubtitles([]);
@@ -988,24 +998,11 @@ function PlayerPage() {
         }
         const result = parseGatewayResponse(await response.json());
         if (cancelled) return;
-        const hostLanguage = pickHostSubtitleLanguage(result.subtitles);
-        setGatewaySubtitles(result.subtitles);
-        setProviderSubtitles(result.providerSubtitles);
-        setActiveHostSubtitle(hostLanguage);
-        setActiveProviderSubtitle(null);
-        if (hostLanguage) setSubtitleSource("host");
-        setGatewaySources(result.sources);
+        // StreamFlix hands playback off completely. Host selection, quality,
+        // subtitles and proxy URLs are owned by the mfp.oplay.id player.
+        setPlayerUrl(result.playerUrl);
         setGatewayError(null);
         setBuffering(true);
-        setStreamUrl(result.streamUrl);
-
-        if (result.expiresIn != null) {
-          const delay = Math.max(result.expiresIn * 1000 - 60_000, 30_000);
-          expiryTimer = window.setTimeout(() => {
-            const video = videoRef.current;
-            if (video && !video.paused && !video.ended) reloadGateway(false);
-          }, delay);
-        }
       } catch (error) {
         if (cancelled || controller.signal.aborted) return;
         const message =
@@ -1027,39 +1024,58 @@ function PlayerPage() {
   }, [movie.id, season, episode, reloadRequest, reloadGateway]);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!streamUrl || !video) return;
-    resumeAppliedRef.current = false;
-    let hls: Hls | null = null;
+    if (!playerUrl) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== "https://mfp.oplay.id" && event.origin !== window.location.origin) return;
+      const data = event.data as { source?: string; type?: string; [key: string]: unknown } | null;
+      if (!data || data.source !== "mfp-player") return;
 
-    if (/\.m3u8(?:$|[?#])/i.test(streamUrl) && Hls.isSupported()) {
-      hls = new Hls();
-      hlsRef.current = hls;
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, applyResumeAndAutoplay);
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal) return;
-        const message = `Stream gagal diputar (${data.details || data.type}).`;
+      if (data.type === "ready") {
+        setGatewayLoading(false);
+        setBuffering(false);
+        const duration = typeof data.duration === "number" ? data.duration : 0;
+        setDuration(duration);
+        const target = pendingSeekRef.current;
+        if (target != null && target > 0) {
+          playerFrameRef.current?.contentWindow?.postMessage(
+            { type: "mfp:seek", time: target },
+            "https://mfp.oplay.id",
+          );
+        }
+      } else if (data.type === "timeupdate") {
+        const cur = typeof data.currentTime === "number" ? data.currentTime : 0;
+        const dur = typeof data.duration === "number" ? data.duration : 0;
+        playbackPositionRef.current = cur;
+        const now = Date.now();
+        if (now - lastTimeUpdateRef.current >= 1000) {
+          lastTimeUpdateRef.current = now;
+          setCurrentTime(cur);
+          setDuration(dur);
+          setProgress(dur > 0 ? (cur / dur) * 100 : 0);
+        }
+        if (now - lastRecordRef.current >= 5000 || cur === 0) {
+          lastRecordRef.current = now;
+          doRecord(cur, dur);
+        }
+      } else if (data.type === "playing") {
+        setPlaying(true);
+        setEnded(false);
+        setBuffering(false);
+      } else if (data.type === "paused") {
+        setPlaying(false);
+      } else if (data.type === "ended") {
+        doRecord(duration, duration);
+        handleVideoEnded();
+      } else if (data.type === "error") {
+        setGatewayLoading(false);
+        setBuffering(false);
+        const message = typeof data.message === "string" ? data.message : "Player gagal memutar video.";
         toast.error(message);
-        setGatewayError(message);
-      });
-      hls.loadSource(streamUrl);
-    } else {
-      video.src = streamUrl;
-      video.load();
-    }
-
-    return () => {
-      if (hls) {
-        hls.off(Hls.Events.MANIFEST_PARSED, applyResumeAndAutoplay);
-        hls.destroy();
-        if (hlsRef.current === hls) hlsRef.current = null;
-      } else {
-        video.removeAttribute("src");
-        video.load();
       }
     };
-  }, [streamUrl, applyResumeAndAutoplay]);
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [playerUrl, duration, doRecord, handleVideoEnded]);
 
   const handleGatewayRetry = useCallback(() => {
     setGatewayError(null);
@@ -1131,93 +1147,15 @@ function PlayerPage() {
       onMouseMove={wake}
       onTouchEnd={onContainerTouch}
     >
-      {streamUrl && (
-        <video
-          ref={videoRef}
-          controls
-          playsInline
-          crossOrigin="anonymous"
-          preload="metadata"
-          poster={movie.backdrop}
-          onPlay={() => {
-            setPlaying(true);
-            wasPlayingRef.current = true;
-            setEnded(false);
-          }}
-          onPause={(e) => {
-            setPlaying(false);
-            wasPlayingRef.current = false;
-            doRecord(e.currentTarget.currentTime, e.currentTarget.duration || 0);
-          }}
-          onTimeUpdate={(e) => {
-            const cur = e.currentTarget.currentTime;
-            const dur = e.currentTarget.duration || 1;
-            playbackPositionRef.current = cur;
-            const now = Date.now();
-            if (now - lastTimeUpdateRef.current >= 1000) {
-              lastTimeUpdateRef.current = now;
-              setProgress(dur > 0 ? (cur / dur) * 100 : 0);
-              setDuration(dur);
-              setCurrentTime(cur);
-            }
-            if (now - lastRecordRef.current >= 5000 || cur === 0) {
-              lastRecordRef.current = now;
-              doRecord(cur, dur);
-            }
-          }}
-          onLoadedMetadata={(e) => {
-            setDuration(e.currentTarget.duration);
-            applyResumeAndAutoplay();
-          }}
-          onCanPlay={() => setBuffering(false)}
-          onVolumeChange={(e) => {
-            setVolume(e.currentTarget.volume);
-            setMuted(e.currentTarget.muted);
-          }}
-          onEnded={(e) => {
-            const dur = e.currentTarget.duration || 0;
-            doRecord(dur, dur);
-            handleVideoEnded();
-          }}
-          onWaiting={() => setBuffering(true)}
-          onPlaying={() => setBuffering(false)}
-          className="size-full bg-black object-contain"
-        >
-          {gatewaySubtitles.map((sub, index) => (
-            <track
-              key={`gateway-${sub.id}`}
-              kind="subtitles"
-              src={sub.url}
-              srcLang={sub.language}
-              label={sub.label}
-              default={
-                subtitleSource === "host" &&
-                sub.language.trim().toLowerCase() === activeHostSubtitle &&
-                gatewaySubtitles.findIndex(
-                  (item) => item.language.trim().toLowerCase() === activeHostSubtitle,
-                ) === index
-              }
-            />
-          ))}
-          {providerSubtitles.map((sub) => (
-            <track
-              key={`provider-${sub.id}`}
-              kind="subtitles"
-              src={sub.url}
-              srcLang={sub.language}
-              label={`api:${sub.id}`}
-            />
-          ))}
-          {subtitles.map((sub) => (
-            <track
-              key={`custom-${sub.id}`}
-              kind="subtitles"
-              src={sub.url}
-              srcLang={sub.lang}
-              label={sub.label}
-            />
-          ))}
-        </video>
+      {playerUrl && (
+        <iframe
+          ref={playerFrameRef}
+          src={playerUrl}
+          title="MediaFlow Player"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowFullScreen
+          className="size-full border-0 bg-black"
+        />
       )}
 
       {gatewayError && (
