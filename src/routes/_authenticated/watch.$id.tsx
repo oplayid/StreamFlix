@@ -169,6 +169,9 @@ function PlayerPage() {
   const kidsMode = isKidsProfile();
 
   const [playerUrl, setPlayerUrl] = useState("");
+  // While the iframe player is actively playing, StreamFlix UI is hidden so the
+  // mfp.oplay.id player owns the full screen.
+  const [playerActive, setPlayerActive] = useState(false);
   const [streamUrl, setStreamUrl] = useState("");
   const [gatewaySubtitles, setGatewaySubtitles] = useState<GatewaySubtitle[]>([]);
   const [providerSubtitles, setProviderSubtitles] = useState<GatewaySubtitle[]>([]);
@@ -1024,6 +1027,10 @@ function PlayerPage() {
   }, [movie.id, season, episode, reloadRequest, reloadGateway]);
 
   useEffect(() => {
+    setPlayerActive(false);
+  }, [playerUrl]);
+
+  useEffect(() => {
     if (!playerUrl) return;
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== "https://mfp.oplay.id" && event.origin !== window.location.origin) return;
@@ -1061,12 +1068,15 @@ function PlayerPage() {
         setPlaying(true);
         setEnded(false);
         setBuffering(false);
+        setPlayerActive(true);
       } else if (data.type === "paused") {
         setPlaying(false);
       } else if (data.type === "ended") {
+        setPlayerActive(false);
         doRecord(duration, duration);
         handleVideoEnded();
       } else if (data.type === "error") {
+        setPlayerActive(false);
         setGatewayLoading(false);
         setBuffering(false);
         const message = typeof data.message === "string" ? data.message : "Player gagal memutar video.";
@@ -1158,6 +1168,8 @@ function PlayerPage() {
         />
       )}
 
+      {!playerActive && (
+      <>
       {gatewayError && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
           <p className="max-w-lg text-sm text-red-300">{gatewayError}</p>
@@ -1681,6 +1693,8 @@ function PlayerPage() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
