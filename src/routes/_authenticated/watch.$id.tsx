@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Loader } from "lucide-react";
 import { movieById } from "@/lib/streamflix-data";
 import { seoMetaFor } from "@/lib/seo";
+import { getContinueWatching, recordProgress } from "@/lib/continue-watching";
+import { saveProgressToFirestore } from "@/lib/continue-watching-firestore";
 import { saveMfpSubtitle, sharedMfpSubtitles } from "@/lib/subtitles";
 
 const watchSearchSchema = z.object({
@@ -31,6 +33,8 @@ function buildGatewayUrl(
 type MfpMessage = {
   source?: unknown;
   type?: unknown;
+  currentTime?: unknown;
+  duration?: unknown;
   track?: {
     lang?: unknown;
     label?: unknown;
@@ -62,6 +66,8 @@ function PlayerPage() {
   const [playerUrl, setPlayerUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const lastRecordRef = useRef(0);
+  const lastDurationRef = useRef(0);
 
   const mediaId = movie?.id ?? "";
 
@@ -87,10 +93,15 @@ function PlayerPage() {
     return () => controller.abort();
   }, [mediaId, season, episode]);
 
-  // Subtitle bridge: mfp owns search/import and playback; Streamflix only
-  // persists shared tracks and sends them back when a new iframe is ready.
+  // mfp owns playback. Streamflix mirrors progress into the existing
+  // continue-watching/watch-history stores and persists imported SubDL tracks.
   useEffect(() => {
-    if (!mediaId) return;
+    if (!mediaId || !movie) return;
+
+    const itemId =
+      season != null && episode != null ? `${movie.id}:S${season}E${episode}` : movie.id;
+    lastRecordRef.current = 0;
+    lastDurationRef.current = 0;
 
     function restoreShared() {
       sharedMfpSubtitles(mediaId)
@@ -102,6 +113,23 @@ function PlayerPage() {
         .catch(() => {});
     }
 
+    function seekToSavedPosition() {
+      const saved = getContinueWatching().find((item) => item.id === itemId);
+      if (!saved || !Number.isFinite(saved.progress) || saved.progress <= 0) return;
+      const target = iframeRef.current?.contentWindow;
+      if (!target) return;
+      target.postMessage({ type: "mfp:seek", time: saved.progress }, MEDIAFLOW_ORIGIN);
+    }
+
+    function record(cur: number, dur: number, force = false) {
+      if (!Number.isFinite(cur) || !Number.isFinite(dur) || dur <= 0) return;
+      const now = Date.now();
+      if (!force && now - lastRecordRef.current < 5000) return;
+      lastRecordRef.current = now;
+      recordProgress(movie, cur, dur, season, episode);
+      saveProgressToFirestore(movie, cur, dur, season, episode).catch(() => {});
+    }
+
     function onMessage(event: MessageEvent) {
       if (event.origin !== MEDIAFLOW_ORIGIN) return;
       if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
@@ -110,6 +138,18 @@ function PlayerPage() {
 
       if (data.type === "ready") {
         restoreShared();
+        seekToSavedPosition();
+        return;
+      }
+      if (data.type === "timeupdate") {
+        const cur = typeof data.currentTime === "number" ? data.currentTime : 0;
+        const dur = typeof data.duration === "number" ? data.duration : 0;
+        lastDurationRef.current = dur;
+        record(cur, dur);
+        return;
+      }
+      if (data.type === "ended") {
+        record(lastDurationRef.current, lastDurationRef.current, true);
         return;
       }
       if (data.type !== "subdlImported" || !data.track) return;
@@ -126,7 +166,7 @@ function PlayerPage() {
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [mediaId]);
+  }, [mediaId, movie, season, episode]);
 
   const goBack = () => {
     if (!mediaId) return;
