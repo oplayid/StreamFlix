@@ -27,6 +27,7 @@ import { Route as AuthenticatedSearchRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as ApiArchiveRouteImport } from './routes/api/archive'
 import { Route as ApiClientIpRouteImport } from './routes/api/client-ip'
+import { Route as ApiEarnvidsUploadRouteImport } from './routes/api/earnvids-upload'
 import { Route as ApiProxyRouteImport } from './routes/api/proxy'
 import { Route as ApiReleaseNotificationsCronRouteImport } from './routes/api/release-notifications-cron'
 import { Route as ApiSendNotificationRouteImport } from './routes/api/send-notification'
@@ -133,6 +134,11 @@ const ApiClientIpRoute = ApiClientIpRouteImport.update({
   path: '/api/client-ip',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiEarnvidsUploadRoute = ApiEarnvidsUploadRouteImport.update({
+  id: '/api/earnvids-upload',
+  path: '/api/earnvids-upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiProxyRoute = ApiProxyRouteImport.update({
   id: '/api/proxy',
   path: '/api/proxy',
@@ -230,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/archive': typeof ApiArchiveRoute
   '/api/client-ip': typeof ApiClientIpRoute
+  '/api/earnvids-upload': typeof ApiEarnvidsUploadRoute
   '/api/proxy': typeof ApiProxyRoute
   '/api/release-notifications-cron': typeof ApiReleaseNotificationsCronRoute
   '/api/send-notification': typeof ApiSendNotificationRoute
@@ -263,6 +270,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/archive': typeof ApiArchiveRoute
   '/api/client-ip': typeof ApiClientIpRoute
+  '/api/earnvids-upload': typeof ApiEarnvidsUploadRoute
   '/api/proxy': typeof ApiProxyRoute
   '/api/release-notifications-cron': typeof ApiReleaseNotificationsCronRoute
   '/api/send-notification': typeof ApiSendNotificationRoute
@@ -299,6 +307,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/archive': typeof ApiArchiveRoute
   '/api/client-ip': typeof ApiClientIpRoute
+  '/api/earnvids-upload': typeof ApiEarnvidsUploadRoute
   '/api/proxy': typeof ApiProxyRoute
   '/api/release-notifications-cron': typeof ApiReleaseNotificationsCronRoute
   '/api/send-notification': typeof ApiSendNotificationRoute
@@ -335,6 +344,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/api/archive'
     | '/api/client-ip'
+    | '/api/earnvids-upload'
     | '/api/proxy'
     | '/api/release-notifications-cron'
     | '/api/send-notification'
@@ -368,6 +378,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/api/archive'
     | '/api/client-ip'
+    | '/api/earnvids-upload'
     | '/api/proxy'
     | '/api/release-notifications-cron'
     | '/api/send-notification'
@@ -403,6 +414,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/api/archive'
     | '/api/client-ip'
+    | '/api/earnvids-upload'
     | '/api/proxy'
     | '/api/release-notifications-cron'
     | '/api/send-notification'
@@ -429,6 +441,7 @@ export interface RootRouteChildren {
   TosRoute: typeof TosRoute
   ApiArchiveRoute: typeof ApiArchiveRoute
   ApiClientIpRoute: typeof ApiClientIpRoute
+  ApiEarnvidsUploadRoute: typeof ApiEarnvidsUploadRoute
   ApiProxyRoute: typeof ApiProxyRoute
   ApiReleaseNotificationsCronRoute: typeof ApiReleaseNotificationsCronRoute
   ApiSendNotificationRoute: typeof ApiSendNotificationRoute
@@ -566,6 +579,13 @@ declare module '@tanstack/react-router' {
       path: '/api/client-ip'
       fullPath: '/api/client-ip'
       preLoaderRoute: typeof ApiClientIpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/earnvids-upload': {
+      id: '/api/earnvids-upload'
+      path: '/api/earnvids-upload'
+      fullPath: '/api/earnvids-upload'
+      preLoaderRoute: typeof ApiEarnvidsUploadRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/proxy': {
@@ -743,6 +763,7 @@ const rootRouteChildren: RootRouteChildren = {
   TosRoute: TosRoute,
   ApiArchiveRoute: ApiArchiveRoute,
   ApiClientIpRoute: ApiClientIpRoute,
+  ApiEarnvidsUploadRoute: ApiEarnvidsUploadRoute,
   ApiProxyRoute: ApiProxyRoute,
   ApiReleaseNotificationsCronRoute: ApiReleaseNotificationsCronRoute,
   ApiSendNotificationRoute: ApiSendNotificationRoute,
