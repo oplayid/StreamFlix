@@ -48,6 +48,7 @@ type MfpMessage = {
 
 type EarnvidsAsset = {
   key?: string;
+  earnvids_job_id?: string;
   earnvids_filecode?: string;
   status?: string;
   player_url?: string;
@@ -212,24 +213,34 @@ function PlayerPage() {
       return true;
     };
 
-    const poll = async (fileCode: string): Promise<void> => {
+    const poll = async (jobId: string, fileCode: string): Promise<void> => {
       if (stopped || controller.signal.aborted) return;
       if (Date.now() - startedAt > EARNVIDS_POLL_TIMEOUT_MS) return;
+      const pollParams = new URLSearchParams();
+      if (jobId) pollParams.set("job_id", jobId);
+      if (fileCode) pollParams.set("file_code", fileCode);
       try {
-        const response = await fetch(
-          `/api/earnvids-upload?file_code=${encodeURIComponent(fileCode)}`,
-          { signal: controller.signal, cache: "no-store" },
-        );
+        const response = await fetch(`/api/earnvids-upload?${pollParams.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
         if (response.ok) {
           const asset = ((await response.json()) as { asset?: EarnvidsAsset }).asset ?? null;
           if (applyAsset(asset)) return;
           if (asset?.status === "failed") return;
+          const nextJobId = asset?.earnvids_job_id || jobId;
+          const nextFileCode = asset?.earnvids_filecode || fileCode;
+          timer = window.setTimeout(
+            () => void poll(nextJobId, nextFileCode),
+            EARNVIDS_POLL_INTERVAL_MS,
+          );
+          return;
         }
       } catch {
         // Ignore transient polling errors; the mfp player keeps running.
       }
       if (!stopped && !controller.signal.aborted) {
-        timer = window.setTimeout(() => void poll(fileCode), EARNVIDS_POLL_INTERVAL_MS);
+        timer = window.setTimeout(() => void poll(jobId, fileCode), EARNVIDS_POLL_INTERVAL_MS);
       }
     };
 
@@ -244,6 +255,13 @@ function PlayerPage() {
           : null;
         if (stopped || controller.signal.aborted) return;
         if (applyAsset(existing)) return;
+        if (existing?.earnvids_job_id && existing.status !== "failed") {
+          timer = window.setTimeout(
+            () => void poll(existing.earnvids_job_id ?? "", existing.earnvids_filecode ?? ""),
+            EARNVIDS_POLL_INTERVAL_MS,
+          );
+          return;
+        }
 
         const response = await fetch("/api/earnvids-upload", {
           method: "POST",
@@ -254,9 +272,9 @@ function PlayerPage() {
         });
         if (stopped || controller.signal.aborted || !response.ok) return;
         const created = ((await response.json()) as { asset?: EarnvidsAsset }).asset ?? null;
-        const fileCode = created?.earnvids_filecode;
-        if (!fileCode || applyAsset(created)) return;
-        timer = window.setTimeout(() => void poll(fileCode), EARNVIDS_POLL_INTERVAL_MS);
+        const jobId = created?.earnvids_job_id;
+        if (!jobId || applyAsset(created)) return;
+        timer = window.setTimeout(() => void poll(jobId, ""), EARNVIDS_POLL_INTERVAL_MS);
       } catch {
         // Keep the mfp fallback; background upload is best-effort.
       }

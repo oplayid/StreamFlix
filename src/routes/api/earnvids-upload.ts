@@ -64,9 +64,10 @@ export const Route = createFileRoute("/api/earnvids-upload")({
 
         try {
           const params = new URL(request.url).searchParams;
+          const jobId = params.get("job_id")?.trim();
           const fileCode = params.get("file_code")?.trim();
-          if (fileCode) {
-            const asset = await checkEarnvidsUpload(fileCode);
+          if (jobId || fileCode) {
+            const asset = await checkEarnvidsUpload(jobId ?? "", fileCode);
             return Response.json({ asset: asset ? publicEarnvidsAsset(asset) : null });
           }
 

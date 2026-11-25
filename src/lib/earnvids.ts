@@ -3,9 +3,9 @@ import { collection } from "./mongo";
 
 /**
  * Server-only EarnVids bridge. StreamFlix sends media identity plus an HMAC to
- * mfp; mfp resolves the source, signs a same-origin proxy URL and asks EarnVids
- * to fetch it. The EarnVids API key, the shared HMAC secret and the original
- * provider URL never reach the browser or MongoDB.
+ * mfp; mfp resolves the source, converts it to one MP4 and uploads that file to
+ * EarnVids in a background job. The EarnVids API key, the shared HMAC secret
+ * and the original provider URL never reach the browser or MongoDB.
  */
 
 const MFP_ORIGIN = (process.env.MFP_ORIGIN ?? "https://mfp.oplay.id").replace(/\/+$/, "");
@@ -34,6 +34,8 @@ export type EarnvidsAssetDoc = {
   episode: string;
   quality: string;
   source_host: string;
+  /** Opaque mfp job id, returned before EarnVids issues a filecode. */
+  earnvids_job_id: string;
   earnvids_filecode: string;
   /** Verified API `link`; empty until EarnVids reports a playable player URL. */
   earnvids_player_url: string;
@@ -50,10 +52,8 @@ export type EarnvidsAssetDoc = {
 };
 
 type UploadResponse = {
-  filecode: string;
-  source: string;
-  quality: string;
-  player_url?: string;
+  job_id: string;
+  status?: string;
   title?: string;
   year?: string;
   overview?: string;
@@ -61,7 +61,8 @@ type UploadResponse = {
 };
 
 type StatusResponse = {
-  filecode: string;
+  job_id?: string;
+  filecode?: string;
   state?: string;
   status?: string;
   progress: number;
@@ -163,8 +164,8 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
     file_public: input.filePublic !== false,
   });
 
-  if (!/^[A-Za-z0-9_-]+$/.test(result.filecode ?? "")) {
-    throw new Error("mfp returned an invalid filecode");
+  if (!/^[A-Za-z0-9_-]+$/.test(result.job_id ?? "")) {
+    throw new Error("mfp returned an invalid job_id");
   }
 
   const doc: EarnvidsAssetDoc = {
@@ -173,10 +174,11 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
     type: input.type,
     season,
     episode,
-    quality: result.quality || quality || "auto",
-    source_host: result.source || "auto",
-    earnvids_filecode: result.filecode,
-    earnvids_player_url: result.player_url ?? "",
+    quality: quality || "auto",
+    source_host: "auto",
+    earnvids_job_id: result.job_id,
+    earnvids_filecode: "",
+    earnvids_player_url: "",
     status: "queued",
     progress: 0,
     title: result.title || title || "",
@@ -194,14 +196,23 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
   return doc;
 }
 
-export async function checkEarnvidsUpload(fileCode: string): Promise<EarnvidsAssetDoc | null> {
-  if (!/^[A-Za-z0-9_-]+$/.test(fileCode)) throw new Error("invalid file_code");
+export async function checkEarnvidsUpload(
+  jobId: string,
+  fileCode?: string,
+): Promise<EarnvidsAssetDoc | null> {
+  const safeJobId = String(jobId ?? "").trim();
+  const safeFileCode = String(fileCode ?? "").trim();
+  if (!safeJobId && !safeFileCode) throw new Error("job_id atau file_code diperlukan");
+  if (safeJobId && !/^[A-Za-z0-9_-]+$/.test(safeJobId)) throw new Error("invalid job_id");
+  if (safeFileCode && !/^[A-Za-z0-9_-]+$/.test(safeFileCode)) throw new Error("invalid file_code");
 
   const result = await postToMfp<StatusResponse>("/internal/earnvids/status", {
-    file_code: fileCode,
+    ...(safeJobId ? { job_id: safeJobId } : {}),
+    ...(safeFileCode ? { file_code: safeFileCode } : {}),
   });
   const col = await collection<EarnvidsAssetDoc>(COLLECTION);
-  const doc = await col.findOne({ earnvids_filecode: fileCode });
+  let doc = safeJobId ? await col.findOne({ earnvids_job_id: safeJobId }) : null;
+  if (!doc && safeFileCode) doc = await col.findOne({ earnvids_filecode: safeFileCode });
   if (!doc) return null;
 
   const status = mapState(result.state ?? result.status ?? "", Boolean(result.canplay));
@@ -215,6 +226,7 @@ export async function checkEarnvidsUpload(fileCode: string): Promise<EarnvidsAss
     checkedAt: new Date(),
     updatedAt: new Date(),
   };
+  if (result.filecode) patch.earnvids_filecode = result.filecode;
   if (result.player_url) patch.earnvids_player_url = result.player_url;
 
   await col.updateOne({ _id: doc._id }, { $set: patch });
