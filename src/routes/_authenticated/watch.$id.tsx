@@ -206,7 +206,8 @@ function PlayerPage() {
     const applyAsset = (asset: EarnvidsAsset | null): boolean => {
       if (!asset || asset.status !== "uploaded") return false;
       const url = parseEarnvidsPlayerUrl(asset.player_url);
-      if (url) setEarnvidsUrl(url);
+      if (!url) return false;
+      setEarnvidsUrl(url);
       stopped = true;
       return true;
     };
