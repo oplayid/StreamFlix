@@ -19,7 +19,8 @@ const watchSearchSchema = z.object({
 const MEDIAFLOW_ORIGIN = "https://mfp.oplay.id";
 const EARNVIDS_PROGRESS_TIMEOUT_MS = 12_000;
 const EARNVIDS_POLL_INTERVAL_MS = 5_000;
-const EARNVIDS_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+// ffmpeg may need up to EARNVIDS_UPLOAD_FFMPEG_TIMEOUT (30 min) for a full film.
+const EARNVIDS_POLL_TIMEOUT_MS = 35 * 60 * 1000;
 
 function buildGatewayUrl(
   id: string,

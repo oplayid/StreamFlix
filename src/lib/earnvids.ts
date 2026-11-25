@@ -254,5 +254,6 @@ export async function getEarnvidsAsset(
 export function publicEarnvidsAsset(doc: EarnvidsAssetDoc) {
   // `source_host` is server-only: the embed host must never reach the browser.
   const { _id, source_host: _sourceHost, ...rest } = doc;
-  return { ...rest, key: _id };
+  // The watch page consumes `player_url`; keep the stored field name additive.
+  return { ...rest, key: _id, player_url: doc.earnvids_player_url };
 }
