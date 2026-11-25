@@ -10,6 +10,7 @@ import { collection } from "./mongo";
 
 const MFP_ORIGIN = (process.env.MFP_ORIGIN ?? "https://mfp.oplay.id").replace(/\/+$/, "");
 const COLLECTION = "earnvids_assets";
+const EARNVIDS_RETRY_COOLDOWN_MS = 60 * 60 * 1000;
 
 export type EarnvidsMediaType = "movie" | "tv";
 export type EarnvidsAssetStatus = "queued" | "uploading" | "encoding" | "uploaded" | "failed";
@@ -39,6 +40,8 @@ export type EarnvidsAssetDoc = {
   status: EarnvidsAssetStatus;
   progress: number;
   title: string;
+  year: string;
+  overview: string;
   duration: number;
   error: string;
   checkedAt: Date;
@@ -51,6 +54,9 @@ type UploadResponse = {
   source: string;
   quality: string;
   player_url?: string;
+  title?: string;
+  year?: string;
+  overview?: string;
   media: { type: string; id: string; season: string; episode: string };
 };
 
@@ -139,6 +145,12 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
 
   const existing = await col.findOne({ _id: key });
   if (existing && existing.status !== "failed") return existing;
+  if (
+    existing?.status === "failed" &&
+    Date.now() - new Date(existing.checkedAt).getTime() < EARNVIDS_RETRY_COOLDOWN_MS
+  ) {
+    return existing;
+  }
 
   const result = await postToMfp<UploadResponse>("/internal/earnvids/upload", {
     type: input.type,
@@ -146,7 +158,7 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
     season,
     episode,
     ...(quality ? { quality } : {}),
-    source: input.source ?? "VidLink",
+    source: input.source ?? "auto",
     ...(title ? { title } : {}),
     file_public: input.filePublic !== false,
   });
@@ -162,12 +174,14 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
     season,
     episode,
     quality: result.quality || quality || "auto",
-    source_host: result.source || input.source || "VidLink",
+    source_host: result.source || "auto",
     earnvids_filecode: result.filecode,
     earnvids_player_url: result.player_url ?? "",
     status: "queued",
     progress: 0,
-    title: title || "",
+    title: result.title || title || "",
+    year: result.year || "",
+    overview: result.overview || "",
     duration: 0,
     error: "",
     checkedAt: new Date(),

@@ -14,10 +14,12 @@ const watchSearchSchema = z.object({
   autoplay: z.boolean().optional(),
 });
 
-// MediaFlow is the only player. Streamflix resolves the media ID, asks the
-// gateway for one opaque iframe URL, and gets out of the way.
+// MediaFlow is the first player. Streamflix resolves the media ID, asks the
+// gateway for one opaque iframe URL, and hands background uploads to EarnVids.
 const MEDIAFLOW_ORIGIN = "https://mfp.oplay.id";
 const EARNVIDS_PROGRESS_TIMEOUT_MS = 12_000;
+const EARNVIDS_POLL_INTERVAL_MS = 5_000;
+const EARNVIDS_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
 function buildGatewayUrl(
   id: string,
@@ -45,6 +47,8 @@ type MfpMessage = {
 };
 
 type EarnvidsAsset = {
+  key?: string;
+  earnvids_filecode?: string;
   status?: string;
   player_url?: string;
 };
@@ -175,8 +179,9 @@ function PlayerPage() {
     return () => controller.abort();
   }, [mediaId, season, episode]);
 
-  // One asset lookup on mount. A verified EarnVids player replaces the mfp
-  // iframe; anything else keeps the normal mfp fallback.
+  // Resolve once on mount. If EarnVids has no uploaded asset yet, start a
+  // background upload and poll until this same page can switch players. The mfp
+  // iframe keeps playing throughout, so upload latency never blocks playback.
   useEffect(() => {
     if (!mediaId) return;
     const controller = new AbortController();
@@ -187,22 +192,80 @@ function PlayerPage() {
     if (season != null) params.set("season", String(season));
     if (episode != null) params.set("episode", String(episode));
 
-    fetch(`/api/earnvids-upload?${params.toString()}`, {
-      signal: controller.signal,
-      cache: "no-store",
-    })
-      .then(async (response) =>
-        response.ok ? ((await response.json()) as { asset?: EarnvidsAsset }) : null,
-      )
-      .then((payload) => {
-        const asset = payload?.asset;
-        setEarnvidsUrl(
-          asset?.status === "uploaded" ? parseEarnvidsPlayerUrl(asset.player_url) : "",
-        );
-      })
-      .catch(() => setEarnvidsUrl(""));
+    const uploadBody: Record<string, unknown> = {
+      type: isTv ? "tv" : "movie",
+      id: mediaId.replace(/^tv-/i, ""),
+    };
+    if (season != null) uploadBody.season = season;
+    if (episode != null) uploadBody.episode = episode;
 
-    return () => controller.abort();
+    let timer: number | undefined;
+    let stopped = false;
+    const startedAt = Date.now();
+
+    const applyAsset = (asset: EarnvidsAsset | null): boolean => {
+      if (!asset || asset.status !== "uploaded") return false;
+      const url = parseEarnvidsPlayerUrl(asset.player_url);
+      if (url) setEarnvidsUrl(url);
+      stopped = true;
+      return true;
+    };
+
+    const poll = async (fileCode: string): Promise<void> => {
+      if (stopped || controller.signal.aborted) return;
+      if (Date.now() - startedAt > EARNVIDS_POLL_TIMEOUT_MS) return;
+      try {
+        const response = await fetch(
+          `/api/earnvids-upload?file_code=${encodeURIComponent(fileCode)}`,
+          { signal: controller.signal, cache: "no-store" },
+        );
+        if (response.ok) {
+          const asset = ((await response.json()) as { asset?: EarnvidsAsset }).asset ?? null;
+          if (applyAsset(asset)) return;
+          if (asset?.status === "failed") return;
+        }
+      } catch {
+        // Ignore transient polling errors; the mfp player keeps running.
+      }
+      if (!stopped && !controller.signal.aborted) {
+        timer = window.setTimeout(() => void poll(fileCode), EARNVIDS_POLL_INTERVAL_MS);
+      }
+    };
+
+    void (async () => {
+      try {
+        const existingResponse = await fetch(`/api/earnvids-upload?${params.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const existing = existingResponse.ok
+          ? (((await existingResponse.json()) as { asset?: EarnvidsAsset }).asset ?? null)
+          : null;
+        if (stopped || controller.signal.aborted) return;
+        if (applyAsset(existing)) return;
+
+        const response = await fetch("/api/earnvids-upload", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(uploadBody),
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (stopped || controller.signal.aborted || !response.ok) return;
+        const created = ((await response.json()) as { asset?: EarnvidsAsset }).asset ?? null;
+        const fileCode = created?.earnvids_filecode;
+        if (!fileCode || applyAsset(created)) return;
+        timer = window.setTimeout(() => void poll(fileCode), EARNVIDS_POLL_INTERVAL_MS);
+      } catch {
+        // Keep the mfp fallback; background upload is best-effort.
+      }
+    })();
+
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (timer) window.clearTimeout(timer);
+    };
   }, [mediaId, isTv, season, episode]);
 
   const earnvidsOrigin = useMemo(() => {
