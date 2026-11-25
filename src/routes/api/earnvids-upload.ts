@@ -38,7 +38,12 @@ export const Route = createFileRoute("/api/earnvids-upload")({
             source?: string;
             title?: string;
             filePublic?: boolean;
+            force?: boolean;
           };
+          // `?force=1` is the documented manual retry for a failed asset; the
+          // cooldown still applies to automatic uploads from the watch page.
+          const force =
+            new URL(request.url).searchParams.get("force") === "1" || body.force === true;
           const asset = await uploadToEarnvids({
             type: body.type as EarnvidsMediaType,
             id: body.id ?? "",
@@ -48,6 +53,7 @@ export const Route = createFileRoute("/api/earnvids-upload")({
             source: body.source,
             title: body.title,
             filePublic: body.filePublic,
+            force,
           });
           return Response.json({ asset: publicEarnvidsAsset(asset) }, { status: 202 });
         } catch (error) {

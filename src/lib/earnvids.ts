@@ -24,6 +24,8 @@ export type EarnvidsUploadInput = {
   source?: string;
   title?: string;
   filePublic?: boolean;
+  /** Explicit manual retry: bypass the 60-minute cooldown on a failed asset. */
+  force?: boolean;
 };
 
 export type EarnvidsAssetDoc = {
@@ -147,6 +149,7 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
   const existing = await col.findOne({ _id: key });
   if (existing && existing.status !== "failed") return existing;
   if (
+    !input.force &&
     existing?.status === "failed" &&
     Date.now() - new Date(existing.checkedAt).getTime() < EARNVIDS_RETRY_COOLDOWN_MS
   ) {
