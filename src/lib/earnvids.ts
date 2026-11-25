@@ -9,14 +9,10 @@ import { collection } from "./mongo";
  */
 
 const MFP_ORIGIN = (process.env.MFP_ORIGIN ?? "https://mfp.oplay.id").replace(/\/+$/, "");
-const PLAYER_BASE = (process.env.EARNVIDS_PLAYER_BASE ?? "https://earnvids.com").replace(
-  /\/+$/,
-  "",
-);
 const COLLECTION = "earnvids_assets";
 
 export type EarnvidsMediaType = "movie" | "tv";
-export type EarnvidsAssetStatus = "pending" | "uploaded" | "failed";
+export type EarnvidsAssetStatus = "queued" | "uploading" | "encoding" | "uploaded" | "failed";
 
 export type EarnvidsUploadInput = {
   type: EarnvidsMediaType;
@@ -25,6 +21,7 @@ export type EarnvidsUploadInput = {
   episode?: string | number;
   quality?: string;
   source?: string;
+  title?: string;
   filePublic?: boolean;
 };
 
@@ -37,9 +34,14 @@ export type EarnvidsAssetDoc = {
   quality: string;
   source_host: string;
   earnvids_filecode: string;
+  /** Verified API `link`; empty until EarnVids reports a playable player URL. */
   earnvids_player_url: string;
   status: EarnvidsAssetStatus;
   progress: number;
+  title: string;
+  duration: number;
+  error: string;
+  checkedAt: Date;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -48,13 +50,21 @@ type UploadResponse = {
   filecode: string;
   source: string;
   quality: string;
+  player_url?: string;
   media: { type: string; id: string; season: string; episode: string };
 };
 
 type StatusResponse = {
   filecode: string;
-  status: string;
+  state?: string;
+  status?: string;
   progress: number;
+  canplay?: boolean;
+  player_url?: string;
+  title?: string;
+  duration?: number;
+  error?: string | null;
+  requests_available?: number;
 };
 
 function assetKey(
@@ -67,11 +77,15 @@ function assetKey(
   return `${type}:${id}:${season}:${episode}:${quality || "auto"}`;
 }
 
-function mapStatus(raw: string): EarnvidsAssetStatus {
-  const value = raw.toUpperCase();
-  if (["CONVERTED", "READY", "DONE", "PUBLIC"].includes(value)) return "uploaded";
-  if (["ERROR", "FAILED", "DELETED"].includes(value)) return "failed";
-  return "pending";
+function mapState(raw: string, canplay: boolean): EarnvidsAssetStatus {
+  const value = raw.trim().toLowerCase();
+  if (canplay || ["uploaded", "converted", "ready", "done", "public"].includes(value)) {
+    return "uploaded";
+  }
+  if (["failed", "error", "deleted"].includes(value)) return "failed";
+  if (["encoding", "converting"].includes(value)) return "encoding";
+  if (["uploading", "pending", "downloading"].includes(value)) return "uploading";
+  return "queued";
 }
 
 async function postToMfp<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -119,6 +133,7 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
   const season = String(input.season ?? "1");
   const episode = String(input.episode ?? "1");
   const quality = String(input.quality ?? "").trim();
+  const title = String(input.title ?? "").trim();
   const key = assetKey(input.type, id, season, episode, quality);
   const col = await collection<EarnvidsAssetDoc>(COLLECTION);
 
@@ -132,6 +147,7 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
     episode,
     ...(quality ? { quality } : {}),
     source: input.source ?? "VidLink",
+    ...(title ? { title } : {}),
     file_public: input.filePublic !== false,
   });
 
@@ -148,9 +164,13 @@ export async function uploadToEarnvids(input: EarnvidsUploadInput): Promise<Earn
     quality: result.quality || quality || "auto",
     source_host: result.source || input.source || "VidLink",
     earnvids_filecode: result.filecode,
-    earnvids_player_url: `${PLAYER_BASE}/${result.filecode}.html`,
-    status: "pending",
+    earnvids_player_url: result.player_url ?? "",
+    status: "queued",
     progress: 0,
+    title: title || "",
+    duration: 0,
+    error: "",
+    checkedAt: new Date(),
     createdAt: existing?.createdAt ?? new Date(),
     updatedAt: new Date(),
   };
@@ -170,10 +190,21 @@ export async function checkEarnvidsUpload(fileCode: string): Promise<EarnvidsAss
   const doc = await col.findOne({ earnvids_filecode: fileCode });
   if (!doc) return null;
 
-  const status = mapStatus(result.status);
+  const status = mapState(result.state ?? result.status ?? "", Boolean(result.canplay));
   const progress = Number(result.progress) || 0;
-  await col.updateOne({ _id: doc._id }, { $set: { status, progress, updatedAt: new Date() } });
-  return { ...doc, status, progress };
+  const patch: Partial<EarnvidsAssetDoc> = {
+    status,
+    progress,
+    title: result.title || doc.title,
+    duration: Number(result.duration) || doc.duration,
+    error: result.error ?? "",
+    checkedAt: new Date(),
+    updatedAt: new Date(),
+  };
+  if (result.player_url) patch.earnvids_player_url = result.player_url;
+
+  await col.updateOne({ _id: doc._id }, { $set: patch });
+  return { ...doc, ...patch };
 }
 
 export async function getEarnvidsAsset(

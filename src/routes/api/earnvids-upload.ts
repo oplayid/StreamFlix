@@ -36,6 +36,7 @@ export const Route = createFileRoute("/api/earnvids-upload")({
             episode?: string | number;
             quality?: string;
             source?: string;
+            title?: string;
             filePublic?: boolean;
           };
           const asset = await uploadToEarnvids({
@@ -45,6 +46,7 @@ export const Route = createFileRoute("/api/earnvids-upload")({
             episode: body.episode,
             quality: body.quality,
             source: body.source,
+            title: body.title,
             filePublic: body.filePublic,
           });
           return Response.json({ asset: publicEarnvidsAsset(asset) }, { status: 202 });

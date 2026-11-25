@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Loader } from "lucide-react";
 import { movieById } from "@/lib/streamflix-data";
 import { seoMetaFor } from "@/lib/seo";
@@ -17,6 +17,7 @@ const watchSearchSchema = z.object({
 // MediaFlow is the only player. Streamflix resolves the media ID, asks the
 // gateway for one opaque iframe URL, and gets out of the way.
 const MEDIAFLOW_ORIGIN = "https://mfp.oplay.id";
+const EARNVIDS_PROGRESS_TIMEOUT_MS = 12_000;
 
 function buildGatewayUrl(
   id: string,
@@ -43,6 +44,16 @@ type MfpMessage = {
   };
 };
 
+type EarnvidsAsset = {
+  status?: string;
+  player_url?: string;
+};
+
+type NormalizedPlayerMessage =
+  | { type: "ready" }
+  | { type: "ended" }
+  | { type: "timeupdate"; currentTime: number; duration: number };
+
 function parsePlayerUrl(payload: unknown): string {
   if (typeof payload !== "object" || payload === null) {
     throw new Error("Respons gateway MediaFlow tidak valid.");
@@ -58,18 +69,89 @@ function parsePlayerUrl(payload: unknown): string {
   return url.toString();
 }
 
+function parseEarnvidsPlayerUrl(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "";
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "https:" || !/\.html?$/.test(url.pathname)) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function savedProgress(itemKey: string): number {
+  const saved = getContinueWatching().find((item) => item.id === itemKey);
+  if (!saved || !Number.isFinite(saved.progress) || saved.progress <= 0) return 0;
+  return saved.progress;
+}
+
+function withStartParam(url: string, seconds: number): string {
+  if (!url || seconds <= 0) return url;
+  try {
+    const target = new URL(url);
+    target.searchParams.set("start", String(Math.floor(seconds)));
+    return target.toString();
+  } catch {
+    return url;
+  }
+}
+
+function numeric(value: unknown): number {
+  const parsed = typeof value === "string" ? Number(value) : value;
+  return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** EarnVids has no documented player API, so accept several common shapes. */
+function normalizeEarnvidsMessage(raw: unknown): NormalizedPlayerMessage | null {
+  let value = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object") return null;
+
+  const top = value as Record<string, unknown>;
+  const nested =
+    top.data && typeof top.data === "object" ? (top.data as Record<string, unknown>) : top;
+  const outerName = String(top.type ?? top.event ?? top.action ?? "").toLowerCase();
+  const innerName = String(nested.type ?? nested.event ?? nested.action ?? "").toLowerCase();
+  const name = innerName || outerName;
+
+  if (name.includes("timeupdate") || name === "time" || name === "currenttime") {
+    return {
+      type: "timeupdate",
+      currentTime: numeric(nested.currentTime ?? nested.time ?? nested.value ?? nested.position),
+      duration: numeric(nested.duration),
+    };
+  }
+  if (name === "ended" || name.includes("complete")) return { type: "ended" };
+  if (name === "ready" || name.includes("loadedmetadata")) return { type: "ready" };
+  return null;
+}
+
 function PlayerPage() {
   const { movie } = Route.useLoaderData();
   const { season, episode } = Route.useSearch();
   const navigate = useNavigate();
 
-  const [playerUrl, setPlayerUrl] = useState("");
+  const [mfpPlayerUrl, setMfpPlayerUrl] = useState("");
+  const [earnvidsUrl, setEarnvidsUrl] = useState("");
+  const [telemetryEnabled, setTelemetryEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const telemetryRef = useRef<HTMLIFrameElement | null>(null);
   const lastRecordRef = useRef(0);
   const lastDurationRef = useRef(0);
+  const progressSeenRef = useRef(false);
 
   const mediaId = movie?.id ?? "";
+  const isTv = mediaId.startsWith("tv-");
+  const itemKey =
+    isTv && season != null && episode != null ? `${mediaId}:S${season}E${episode}` : mediaId;
 
   useEffect(() => {
     if (!mediaId) return;
@@ -84,7 +166,7 @@ function PlayerPage() {
         }
         return parsePlayerUrl(await response.json());
       })
-      .then((url) => setPlayerUrl(url))
+      .then((url) => setMfpPlayerUrl(url))
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
         setError(reason instanceof Error ? reason.message : "Gagal menyiapkan player MediaFlow.");
@@ -93,15 +175,82 @@ function PlayerPage() {
     return () => controller.abort();
   }, [mediaId, season, episode]);
 
-  // mfp owns playback. Streamflix mirrors progress into the existing
-  // continue-watching/watch-history stores and persists imported SubDL tracks.
+  // One asset lookup on mount. A verified EarnVids player replaces the mfp
+  // iframe; anything else keeps the normal mfp fallback.
+  useEffect(() => {
+    if (!mediaId) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      type: isTv ? "tv" : "movie",
+      id: mediaId.replace(/^tv-/i, ""),
+    });
+    if (season != null) params.set("season", String(season));
+    if (episode != null) params.set("episode", String(episode));
+
+    fetch(`/api/earnvids-upload?${params.toString()}`, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(async (response) =>
+        response.ok ? ((await response.json()) as { asset?: EarnvidsAsset }) : null,
+      )
+      .then((payload) => {
+        const asset = payload?.asset;
+        setEarnvidsUrl(
+          asset?.status === "uploaded" ? parseEarnvidsPlayerUrl(asset.player_url) : "",
+        );
+      })
+      .catch(() => setEarnvidsUrl(""));
+
+    return () => controller.abort();
+  }, [mediaId, isTv, season, episode]);
+
+  const earnvidsOrigin = useMemo(() => {
+    if (!earnvidsUrl) return "";
+    try {
+      return new URL(earnvidsUrl).origin;
+    } catch {
+      return "";
+    }
+  }, [earnvidsUrl]);
+
+  const visibleSrc = useMemo(
+    () => (earnvidsUrl ? withStartParam(earnvidsUrl, savedProgress(itemKey)) : mfpPlayerUrl),
+    [earnvidsUrl, itemKey, mfpPlayerUrl],
+  );
+
+  // If the EarnVids player never reports progress, keep a silent, low-profile
+  // mfp iframe as the progress authority. It reuses the URL already resolved
+  // above — no extra server check and no automatic failover.
+  useEffect(() => {
+    progressSeenRef.current = false;
+    if (!earnvidsUrl) {
+      setTelemetryEnabled(false);
+      return;
+    }
+    setTelemetryEnabled(false);
+    const timer = window.setTimeout(() => {
+      if (!progressSeenRef.current) setTelemetryEnabled(true);
+    }, EARNVIDS_PROGRESS_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [earnvidsUrl]);
+
+  // Streamflix mirrors progress into the existing continue-watching/watch-history
+  // stores. The same bridge works for mfp and for EarnVids messages.
   useEffect(() => {
     if (!mediaId || !movie) return;
 
-    const itemId =
-      season != null && episode != null ? `${movie.id}:S${season}E${episode}` : movie.id;
     lastRecordRef.current = 0;
     lastDurationRef.current = 0;
+
+    function record(cur: number, dur: number, force = false) {
+      if (!Number.isFinite(cur) || !Number.isFinite(dur) || dur <= 0) return;
+      const now = Date.now();
+      if (!force && now - lastRecordRef.current < 5000) return;
+      lastRecordRef.current = now;
+      recordProgress(movie, cur, dur, season, episode);
+      saveProgressToFirestore(movie, cur, dur, season, episode).catch(() => {});
+    }
 
     function restoreShared() {
       sharedMfpSubtitles(mediaId)
@@ -113,32 +262,44 @@ function PlayerPage() {
         .catch(() => {});
     }
 
-    function seekToSavedPosition() {
-      const saved = getContinueWatching().find((item) => item.id === itemId);
-      if (!saved || !Number.isFinite(saved.progress) || saved.progress <= 0) return;
-      const target = iframeRef.current?.contentWindow;
-      if (!target) return;
-      target.postMessage({ type: "mfp:seek", time: saved.progress }, MEDIAFLOW_ORIGIN);
+    function seekEarnvids(target: Window, origin: string) {
+      const seconds = savedProgress(itemKey);
+      if (seconds <= 0) return;
+      // Different themes use different verbs; harmless if the player ignores them.
+      target.postMessage({ type: "seek", time: seconds }, origin);
+      target.postMessage({ method: "seek", value: seconds }, origin);
+      target.postMessage({ type: "setPosition", value: seconds }, origin);
     }
 
-    function record(cur: number, dur: number, force = false) {
-      if (!Number.isFinite(cur) || !Number.isFinite(dur) || dur <= 0) return;
-      const now = Date.now();
-      if (!force && now - lastRecordRef.current < 5000) return;
-      lastRecordRef.current = now;
-      recordProgress(movie, cur, dur, season, episode);
-      saveProgressToFirestore(movie, cur, dur, season, episode).catch(() => {});
+    function handleTelemetry(target: Window, data: MfpMessage) {
+      if (data.type === "ready") {
+        target.postMessage({ type: "mfp:mute" }, MEDIAFLOW_ORIGIN);
+        const seconds = savedProgress(itemKey);
+        if (seconds > 0) {
+          target.postMessage({ type: "mfp:seek", time: seconds }, MEDIAFLOW_ORIGIN);
+        }
+        target.postMessage({ type: "mfp:play" }, MEDIAFLOW_ORIGIN);
+        return;
+      }
+      if (data.type === "timeupdate") {
+        const cur = typeof data.currentTime === "number" ? data.currentTime : 0;
+        const dur = typeof data.duration === "number" ? data.duration : 0;
+        lastDurationRef.current = dur;
+        record(cur, dur);
+        return;
+      }
+      if (data.type === "ended") {
+        record(lastDurationRef.current, lastDurationRef.current, true);
+      }
     }
 
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== MEDIAFLOW_ORIGIN) return;
-      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
-      const data = event.data as MfpMessage | null;
-      if (!data || typeof data !== "object" || data.source !== "mfp-player") return;
-
+    function handleMfpVisible(target: Window, data: MfpMessage) {
       if (data.type === "ready") {
         restoreShared();
-        seekToSavedPosition();
+        const seconds = savedProgress(itemKey);
+        if (seconds > 0) {
+          target.postMessage({ type: "mfp:seek", time: seconds }, MEDIAFLOW_ORIGIN);
+        }
         return;
       }
       if (data.type === "timeupdate") {
@@ -164,9 +325,48 @@ function PlayerPage() {
       saveMfpSubtitle({ mediaId, lang, label, downloadPath, url }).catch(() => {});
     }
 
+    function onMessage(event: MessageEvent) {
+      const visibleWindow = iframeRef.current?.contentWindow;
+      const telemetryWindow = telemetryRef.current?.contentWindow;
+      const fromTelemetry = Boolean(telemetryWindow && event.source === telemetryWindow);
+      const fromVisible = Boolean(visibleWindow && event.source === visibleWindow);
+      if (!fromTelemetry && !fromVisible) return;
+
+      if (earnvidsUrl && fromVisible) {
+        if (!earnvidsOrigin || event.origin !== earnvidsOrigin || !visibleWindow) return;
+        const message = normalizeEarnvidsMessage(event.data);
+        if (!message) return;
+        if (message.type === "ready") {
+          seekEarnvids(visibleWindow, earnvidsOrigin);
+          return;
+        }
+        progressSeenRef.current = true;
+        if (telemetryEnabled) setTelemetryEnabled(false);
+        if (message.type === "timeupdate") {
+          lastDurationRef.current = message.duration;
+          record(message.currentTime, message.duration);
+          return;
+        }
+        record(lastDurationRef.current, lastDurationRef.current, true);
+        return;
+      }
+
+      if (event.origin !== MEDIAFLOW_ORIGIN) return;
+      const data = event.data as MfpMessage | null;
+      if (!data || typeof data !== "object" || data.source !== "mfp-player") return;
+
+      if (fromTelemetry && telemetryWindow) {
+        handleTelemetry(telemetryWindow, data);
+        return;
+      }
+      if (fromVisible && visibleWindow) {
+        handleMfpVisible(visibleWindow, data);
+      }
+    }
+
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [mediaId, movie, season, episode]);
+  }, [mediaId, movie, season, episode, itemKey, earnvidsUrl, earnvidsOrigin, telemetryEnabled]);
 
   const goBack = () => {
     if (!mediaId) return;
@@ -194,18 +394,30 @@ function PlayerPage() {
         </div>
 
         <section className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black shadow-2xl">
-          {playerUrl && (
+          {visibleSrc && (
             <iframe
               ref={iframeRef}
-              src={playerUrl}
-              title="MediaFlow Player"
+              src={visibleSrc}
+              title={earnvidsUrl ? "EarnVids Player" : "MediaFlow Player"}
               allow="autoplay; fullscreen; picture-in-picture"
               allowFullScreen
               className="h-full w-full border-0 bg-black"
             />
           )}
 
-          {!playerUrl && !error && (
+          {earnvidsUrl && telemetryEnabled && mfpPlayerUrl && (
+            <iframe
+              ref={telemetryRef}
+              src={mfpPlayerUrl}
+              title="Progress telemetry"
+              aria-hidden="true"
+              tabIndex={-1}
+              allow="autoplay"
+              className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
+            />
+          )}
+
+          {!visibleSrc && !error && (
             <div className="absolute inset-0 grid place-items-center gap-3 bg-black text-sm text-white/60">
               <Loader className="size-6 animate-spin" aria-hidden="true" />
               <span>Menyiapkan player…</span>
